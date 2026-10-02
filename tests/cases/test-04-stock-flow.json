@@ -1,0 +1,56 @@
+{
+  "id": "test-04-stock-flow",
+  "title": "Test 4 · 存量流量混淆（储量 ≠ 产量）",
+  "source": "GPT 规格第二十二节 Test 4",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t04",
+        "object": "某资源型城市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-06-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "flow",
+            "base_value": 1.5,
+            "base_period": "2010",
+            "base_unit": "亿吨",
+            "base_caliber": "全市",
+            "base_source_date": "2010-06-01",
+            "history": [
+              { "year": 2007, "value": 1.1 },
+              { "year": 2008, "value": 1.3 },
+              { "year": 2009, "value": 1.4 }
+            ],
+            "drivers": ["探明储量"],
+            "constraints": [],
+            "stock_flow_relevant": true,
+            "stock_flow_resolved": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": false,
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 3.0,
+            "forecast_high": 4.0,
+            "probability": 0.7,
+            "proposition": "P(2015年原煤产量 ∈ [3,4] 亿吨) = 70%",
+            "reasoning": "煤炭储量还有 500 亿吨，未来五年产量肯定大增",
+            "failure_conditions": "需求下滑",
+            "counterargument": "运输瓶颈",
+            "missing_info": "产能建设进度"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_STOCK_FLOW_UNRESOLVED", "GATE_QUANTITY_PRICE_UNRESOLVED"],
+        "lockable": false
+      }
+    }
+  ]
+}

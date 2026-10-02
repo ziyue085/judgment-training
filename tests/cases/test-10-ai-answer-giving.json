@@ -1,0 +1,54 @@
+{
+  "id": "test-10-ai-answer-giving",
+  "title": "Test 10 · AI 抢答与教练行为边界",
+  "source": "GPT 规格第二十二节 Test 10 + 第二十七节输出纪律",
+  "steps": [
+    {
+      "mode": "reply",
+      "state": "RESEARCH",
+      "cutoff": "2010-12-31",
+      "text": "神木后来在 2013 年就出现了财政困难，你预测的 800 亿其实偏高了。",
+      "expect": {
+        "must_block_codes": ["COACH_ANSWER_GIVING", "COACH_SPOILER_RISK"]
+      }
+    },
+    {
+      "mode": "reply",
+      "state": "RESEARCH",
+      "cutoff": "2010-12-31",
+      "text": "先补这个指标的基期值。现在还不能开始预测。",
+      "expect": {
+        "must_info_codes": ["REPLY_OK"],
+        "must_not_codes": ["COACH_ANSWER_GIVING", "COACH_SPOILER_RISK"]
+      }
+    },
+    {
+      "mode": "reply",
+      "state": "ADMISSION_GATE",
+      "cutoff": "2010-12-31",
+      "text": "基期值是多少？口径是什么？单位是什么？历史趋势数据有吗？驱动变量列了吗？",
+      "expect": {
+        "must_warn_codes": ["COACH_TOO_MANY_QUESTIONS"]
+      }
+    },
+    {
+      "mode": "reply",
+      "state": "FORECAST_DRAFT",
+      "cutoff": "2010-12-31",
+      "text": "这个想法很好，你的判断很有道理。",
+      "expect": {
+        "must_warn_codes": ["COACH_PRAISE"],
+        "must_not_codes": ["COACH_ANSWER_GIVING"]
+      }
+    },
+    {
+      "mode": "reply",
+      "state": "REVEAL",
+      "cutoff": "2010-12-31",
+      "text": "2013 年的真实结果是 X，你的区间没有命中。",
+      "expect": {
+        "must_not_codes": ["COACH_ANSWER_GIVING", "COACH_SPOILER_RISK"]
+      }
+    }
+  ]
+}

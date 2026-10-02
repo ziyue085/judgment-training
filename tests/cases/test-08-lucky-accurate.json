@@ -1,0 +1,49 @@
+{
+  "id": "test-08-lucky-accurate",
+  "title": "Test 8 · 结果对但过程烂",
+  "source": "GPT 规格第二十二节 Test 8",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "case_id": "t08-lucky",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": false,
+        "sources": [],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": null,
+            "base_unit": null,
+            "base_caliber": null,
+            "history": [],
+            "drivers": [],
+            "constraints": [],
+            "qualitative_direction": "uncertain",
+            "forecast_form": "range",
+            "forecast_low": 500,
+            "forecast_high": 510,
+            "probability": 0.9,
+            "reasoning": null,
+            "failure_conditions": null,
+            "counterargument": null,
+            "missing_info": null
+          }
+        ],
+        "outcome": {
+          "actual": 505,
+          "note": "用户纯凭直觉报了一个数，结果碰巧非常接近。"
+        }
+      },
+      "expect": {
+        "verdict": "LUCKY_ACCURATE",
+        "must_attribution": ["FACTUAL", "PROBABILITY", "BASE_RATE_IGNORED"]
+      }
+    }
+  ]
+}

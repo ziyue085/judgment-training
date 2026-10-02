@@ -1,0 +1,59 @@
+{
+  "id": "test-09-good-process-miss",
+  "title": "Test 9 · 结果错但过程合理",
+  "source": "GPT 规格第二十二节 Test 9",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "case_id": "t09-good-process",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [
+              { "year": 2007, "value": 380 },
+              { "year": 2008, "value": 460 },
+              { "year": 2009, "value": 530 }
+            ],
+            "drivers": ["固定资产投资", "煤炭产量"],
+            "constraints": ["财政收支", "产能"],
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 800,
+            "forecast_high": 1000,
+            "center": 900,
+            "probability": 0.55,
+            "proposition": "P(2015年GDP ∈ [800,1000] 亿元) = 55%",
+            "reasoning": "基期 600，历史三年增速区间 15%—21%，取中性 8%—11% 外推。",
+            "failure_conditions": "若煤炭价格年均跌幅超过 10%，则本区间失效。",
+            "counterargument": "资源型城市的收入弹性高于常规城市，中性假设可能仍偏乐观。",
+            "missing_info": "煤炭下游需求数据"
+          }
+        ],
+        "outcome": {
+          "actual": 760,
+          "note": "实际值落在用户预留的 45% 残余情景内。"
+        }
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_MISS",
+        "must_attribution": []
+      }
+    }
+  ]
+}

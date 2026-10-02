@@ -1,0 +1,103 @@
+{
+  "id": "test-06-prob-subset",
+  "title": "Test 6 · 概率包含关系错误",
+  "source": "GPT 规格第二十二节 Test 6",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t06-bad",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [{ "year": 2007, "value": 380 }, { "year": 2008, "value": 460 }, { "year": 2009, "value": 530 }],
+            "drivers": ["投资"],
+            "constraints": ["财政"],
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 900,
+            "forecast_high": 1050,
+            "probability": 0.7,
+            "proposition": "P(2015年GDP ∈ [900,1050]) = 70%",
+            "reasoning": "增长趋势",
+            "failure_conditions": "需求收缩",
+            "counterargument": "煤价回落",
+            "missing_info": "无"
+          }
+        ],
+        "propositions": [
+          { "label": "GDP > 1000", "p": 0.7 },
+          { "label": "GDP > 900", "p": 0.6 }
+        ],
+        "prob_relations": [
+          { "a": "GDP > 1000", "b": "GDP > 900", "relation": "subset" }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["PROB_LOGIC_SUBSET"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t06-fixed",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [{ "year": 2007, "value": 380 }, { "year": 2008, "value": 460 }, { "year": 2009, "value": 530 }],
+            "drivers": ["投资"],
+            "constraints": ["财政"],
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 900,
+            "forecast_high": 1050,
+            "probability": 0.6,
+            "proposition": "P(2015年GDP ∈ [900,1050]) = 60%",
+            "reasoning": "增长趋势",
+            "failure_conditions": "需求收缩",
+            "counterargument": "煤价回落",
+            "missing_info": "无"
+          }
+        ],
+        "propositions": [
+          { "label": "GDP > 900", "p": 0.7 },
+          { "label": "GDP > 1000", "p": 0.6 }
+        ],
+        "prob_relations": [
+          { "a": "GDP > 1000", "b": "GDP > 900", "relation": "subset" }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["PROB_LOGIC_SUBSET"],
+        "lockable": true
+      }
+    }
+  ]
+}

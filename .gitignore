@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 训练档案属于用户数据，不进仓库
+# （档案默认写在用户工作区的 judgment-training/ 目录，不在本仓库内）
+cases-local/
+*.local.json
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,76 @@
+{
+  "id": "test-12-clean-negative-control",
+  "title": "Test 12 · 反向对照：干净案例不得被误拦",
+  "source": "自建（防误报对照）",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t12-clean",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [
+              { "year": 2007, "value": 380 },
+              { "year": 2008, "value": 460 },
+              { "year": 2009, "value": 530 }
+            ],
+            "drivers": ["固定资产投资", "煤炭产量"],
+            "constraints": ["财政收支"],
+            "stock_flow_relevant": false,
+            "stock_flow_resolved": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 700,
+            "forecast_high": 800,
+            "center": 750,
+            "probability": 0.6,
+            "proposition": "P(2013年GDP ∈ [700,800] 亿元) = 60%",
+            "reasoning": "基期 600，历史三年增速 17%—21%，下调至 5%—10% 后外推三年。",
+            "failure_conditions": "若固定资产投资连续两年负增长，本区间失效。",
+            "counterargument": "资源价格上行可能使实际增速高于历史均值。",
+            "missing_info": "固定资产投资月度数据"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": [],
+        "lockable": true,
+        "must_not_codes": [
+          "GATE_BASE_MISSING",
+          "GATE_UNIT_MISSING",
+          "GATE_CALIBER_MISSING",
+          "GATE_NO_HISTORY_SERIES",
+          "GATE_DRIVER_MISSING",
+          "GATE_CONSTRAINT_MISSING",
+          "GATE_STOCK_FLOW_UNRESOLVED",
+          "GATE_QUANTITY_PRICE_UNRESOLVED",
+          "GATE_QUAL_QUANT_CONFLICT",
+          "FIREWALL_CONTAMINATION",
+          "PROB_UNIFORM",
+          "PROB_PRECISION",
+          "PROB_MISSING",
+          "PROB_NO_PROPOSITION",
+          "BASE_RATE_MISSING",
+          "LOCK_FIELD_MISSING",
+          "EXTREME_GROWTH_UNJUSTIFIED"
+        ]
+      }
+    }
+  ]
+}

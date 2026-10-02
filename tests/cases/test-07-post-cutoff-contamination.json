@@ -1,0 +1,50 @@
+{
+  "id": "test-07-post-cutoff-contamination",
+  "title": "Test 7 · 事后信息污染（截点 2010，引用 2013 材料）",
+  "source": "GPT 规格第二十二节 Test 7",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t07-contaminated",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [
+          { "date": "2010-05-01", "kind": "fact", "usable": true, "note": "截点前公开材料" },
+          { "date": "2013-05-01", "kind": "post_cutoff", "usable": true, "note": "夹具：模拟用户把截点后材料带进预测" }
+        ],
+        "indicators": []
+      },
+      "expect": {
+        "must_block_codes": ["FIREWALL_CONTAMINATION"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t07-isolated",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [
+          { "date": "2010-05-01", "kind": "fact", "usable": true, "note": "截点前公开材料" },
+          { "date": "2013-05-01", "kind": "post_cutoff", "usable": false, "note": "已隔离" }
+        ],
+        "indicators": []
+      },
+      "expect": {
+        "must_info_codes": ["FIREWALL_ISOLATED"],
+        "must_not_codes": ["FIREWALL_CONTAMINATION"],
+        "lockable": true
+      }
+    }
+  ]
+}

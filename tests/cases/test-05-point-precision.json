@@ -1,0 +1,102 @@
+{
+  "id": "test-05-point-precision",
+  "title": "Test 5 · 点预测过度精确",
+  "source": "GPT 规格第二十二节 Test 5",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t05-overprecise",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [
+              { "year": 2007, "value": 380 },
+              { "year": 2008, "value": 460 },
+              { "year": 2009, "value": 530 }
+            ],
+            "drivers": ["固定资产投资"],
+            "constraints": ["财政"],
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_form": "point",
+            "forecast_point": 817.3,
+            "center": 817.3,
+            "probability": 0.9,
+            "proposition": "P(2015年GDP = 817.3 亿元) = 90%",
+            "reasoning": "按复合增速外推",
+            "failure_conditions": "政策转向",
+            "counterargument": "外部需求走弱",
+            "missing_info": "无"
+          }
+        ]
+      },
+      "expect": {
+        "must_warn_codes": ["PROB_PRECISION"],
+        "lockable": true
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t05-corrected",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [
+              { "year": 2007, "value": 380 },
+              { "year": 2008, "value": 460 },
+              { "year": 2009, "value": 530 }
+            ],
+            "drivers": ["固定资产投资"],
+            "constraints": ["财政"],
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 750,
+            "forecast_high": 900,
+            "center": 820,
+            "probability": 0.55,
+            "proposition": "P(2015年GDP ∈ [750,900] 亿元) = 55%",
+            "reasoning": "按区间外推",
+            "failure_conditions": "政策转向",
+            "counterargument": "外部需求走弱",
+            "missing_info": "无"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["PROB_PRECISION"],
+        "lockable": true
+      }
+    }
+  ]
+}

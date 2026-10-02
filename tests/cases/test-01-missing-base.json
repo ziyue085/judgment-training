@@ -1,0 +1,47 @@
+{
+  "id": "test-01-missing-base",
+  "title": "Test 1 · 缺基期即拦截",
+  "source": "GPT 规格第二十二节 Test 1",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t01",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": null,
+            "base_period": null,
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": null,
+            "history": [],
+            "drivers": ["投资"],
+            "constraints": ["财政"],
+            "qualitative_direction": "up",
+            "forecast_form": "point",
+            "center": 800,
+            "probability": 0.6,
+            "proposition": "P(2015年GDP ∈ [750,850]) = 60%",
+            "reasoning": "按经验推测",
+            "failure_conditions": "政策转向",
+            "counterargument": "增速可能低于预期",
+            "missing_info": "基期值"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_BASE_MISSING"],
+        "lockable": false
+      }
+    }
+  ]
+}

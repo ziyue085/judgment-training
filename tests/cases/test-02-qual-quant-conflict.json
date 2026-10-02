@@ -1,0 +1,56 @@
+{
+  "id": "test-02-qual-quant-conflict",
+  "title": "Test 2 · 定性判断与预测数字矛盾",
+  "source": "GPT 规格第二十二节 Test 2",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "case_id": "t02",
+        "object": "某市",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2015-12-31",
+        "difficulty": 2,
+        "base_rate_provided": true,
+        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_period": "2010",
+            "base_unit": "亿元",
+            "base_caliber": "当年价/全市",
+            "base_source_date": "2010-03-01",
+            "history": [
+              { "year": 2007, "value": 380 },
+              { "year": 2008, "value": 460 },
+              { "year": 2009, "value": 530 }
+            ],
+            "drivers": ["煤炭产量", "煤价"],
+            "constraints": ["产能", "需求"],
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_form": "range",
+            "forecast_low": 450,
+            "forecast_high": 550,
+            "center": 500,
+            "probability": 0.6,
+            "proposition": "P(2015年GDP ∈ [450,550] 亿元) = 60%",
+            "reasoning": "未来五年会继续高速增长",
+            "failure_conditions": "煤价大幅回落",
+            "counterargument": "需求可能收缩",
+            "missing_info": "煤炭需求侧数据"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_QUAL_QUANT_CONFLICT"],
+        "must_info_codes": ["IMPLIED_CAGR_COMPUTED"],
+        "lockable": false
+      }
+    }
+  ]
+}
