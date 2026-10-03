@@ -9,6 +9,7 @@
 ### Added
 
 - README 新增 **「一句话安装」**：给出可直接复制给任意 AI Agent 的自然语言安装指令，含纯对话型 AI（不能执行命令）的「读取 URL 作为长期指令」变体，以及各 Agent 技能目录对照表
+- README 补注 `raw.githubusercontent.com` 的连通性坑（实测直连返回 `000`），并给出仓库页面地址作为备选
 - README 补充依赖说明（Python optional but recommended）与安装后自检命令
 
 ### Changed

@@ -75,6 +75,13 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 以后我说「判断力训练」时，按 SKILL.md 里的角色和流程执行。
 ```
 
+> ⚠️ `raw.githubusercontent.com` 在部分网络环境（如中国大陆直连）不可达，实测直连会返回 `000`。
+> 若读不到，把上面两个链接换成仓库页面地址：
+> - `https://github.com/ziyue085/judgment-training/blob/main/SKILL.md`
+> - `https://github.com/ziyue085/judgment-training/tree/main/references`
+>
+> 或让 AI 直接执行下面的 `git clone`。
+
 ### 各 AI 的技能目录
 
 | Agent | 目录 | 说明 |
