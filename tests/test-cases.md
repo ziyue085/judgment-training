@@ -3,10 +3,10 @@
 > 每个用例都对应 `tests/cases/` 下的一个可执行夹具。全部由 `tests/run_regression.py` 断言。
 
 ```bash
-python tests/run_regression.py            # 全部 JSON 夹具（23 tests / 49 steps）
+python tests/run_regression.py            # 全部 JSON 夹具（27 tests / 55 steps）
 python tests/run_regression.py --verbose  # 打印每个 step 的实际发现
-python tests/run_regression.py --conversation   # 追加 4 个对话级映射用例（57 steps）
-python tests/mutation_check.py            # 变异测试 A—F：确认测试不是空转
+python tests/run_regression.py --conversation   # 追加 4 个对话级映射用例（63 steps）
+python tests/mutation_check.py            # 变异测试 A—I：确认测试不是空转
 python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json
 ```
 
@@ -15,6 +15,10 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 > 详见用例 20 与 `references/state-extraction.md` 4.6 节。
 > 断言能力也扩了：`expect.indicator_results` 可逐指标核对
 > `interval_hit` / `scored_event_hit` / `brier` / `actual_value`。
+>
+> v0.2.4 起，凡参与复盘评分的夹具都使用**完整揭晓记录**
+> （`actual_value` + `actual_unit` + `actual_caliber` + `actual_period` + `source`）。
+> 裸 `actual` 会触发 `LEGACY_UNVERIFIED`，见用例 26。
 
 ---
 
@@ -45,6 +49,16 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 | 21 | 发布时间不明分半 | `test-21-publication-unknown-block.json` | 在用材料 BLOCK，已隔离材料不 BLOCK（v0.2.3） |
 | 22 | 揭晓目标期校验 | `test-22-reveal-target-period.json` | 期末 ≠ `forecast_to` → BLOCK（v0.2.3） |
 | 23 | 全链路贯通 | `test-23-full-pipeline-integration.json` | 草稿→可锁→揭晓→复盘四项同源（v0.2.3） |
+| 24 | 无效揭晓不得评分 | `test-24-invalid-reveal-no-scoring.json` | 期间错位 → `outcome_valid=false`、命中与 Brier 全 `null`（v0.2.4） |
+| 25 | 口径不符不得评分 | `test-25-caliber-mismatch-no-scoring.json` | 「数字正好落区间」也无效 → `REVEAL_CALIBER_MISMATCH`（v0.2.4） |
+| 26 | 裸 legacy actual | `test-26-legacy-actual-unverified.json` | `{"actual": 500}` → `LEGACY_UNVERIFIED`、`brier=null`（v0.2.4） |
+| 27 | 修订双轨评价 | `test-27-revision-dual-evaluation.json` | `as_reported_then` 与 `latest_revised` 两轨各算各的（v0.2.4） |
+
+> **用例 08 / 09 / 15 的迁移（v0.2.4）**：这三个夹具原先使用裸 `actual`，
+> 在新规则下会被判为 `LEGACY_UNVERIFIED` 而改变裁决。判定为**夹具本身不完整**
+> （不是期望逻辑有误），故按 §11 升级为正式揭晓记录（补 `actual_unit` /
+> `actual_caliber` / `actual_period` / `source` 等），**期望值一行未改**，
+> 原有测试意图完整保留。legacy 路径改由用例 26 专门覆盖。
 
 ### 对话级用例（`tests/conversation/`，需 `--conversation`）
 
@@ -145,6 +159,9 @@ GDP > 900：60%
 
 **核心原则**：结果正确 + 推理糟糕 ≠ 好预测。
 
+> v0.2.4 迁移：结果记录由裸 `actual` 升级为完整揭晓记录（否则会被判 `LEGACY_UNVERIFIED`）。
+> 期望值未改，见用例总表脚注。
+
 ---
 
 ## 用例 9 · 结果错但过程合理
@@ -154,6 +171,8 @@ GDP > 900：60%
 **正确行为**：`PROCESS_GOOD_OUTCOME_MISS`。
 
 **核心原则**：不得因结果错就判过程失败。概率诚实的落空是好预测的正常代价。
+
+> v0.2.4 迁移：同用例 8，结果记录升级为完整揭晓记录。
 
 ---
 
@@ -350,3 +369,78 @@ v0.2.2 时该夹具触发 39 BLOCK + 8 WARN；v0.2.3 起为 **45 BLOCK + 6 WARN*
 
 刻意选了"区间没命中、命题命中"的形态：**四项结论由同一份 `actual_value` 派生**，
 任何一环断掉都会整体失败。变异 E 与 F 都会让本用例转红。
+
+---
+
+## 用例 24 · 无效揭晓不得评分（v0.2.4）
+
+**要修的 bug**：`check_reveal()` 在 `REVEAL` 阶段会拦下期间错位的结果，
+但 `postmortem()` **自己不验证** —— 绕过状态机直接复盘时，一份期间错位的结果照样被算分。
+
+夹具构造：`forecast_to = 2013-12-31`，评分命题 `GDP > 420`，`actual_value = 450`、
+但 `actual_period_end = 2012-12-31`。**单看 450 > 420 本该命中**，但期间错位。
+
+| step | 模式 | 期望 |
+|---|---|---|
+| 1 | `reveal` | 报 `REVEAL_TARGET_PERIOD_MISMATCH`（BLOCK） |
+| 2 | `postmortem` | `outcome_valid=false`、`outcome_status=INVALID`、命中与 Brier 全 `None` |
+
+**关键断言**：`scored_event_hit is None`、`brier is None`、
+`actual_value == 450`（保留展示）、`process_clean == True`、
+`verdict == PROCESS_GOOD_OUTCOME_INVALID`。
+**错误行为**：给出 `PROCESS_GOOD_OUTCOME_HIT` —— 那就等于用一个错年份的数字
+给用户记一次命中。
+**反证**：变异 G（忽略失效码）会让本用例转红。
+
+---
+
+## 用例 25 · 口径不符不得评分（v0.2.4）
+
+预测的是**常住人口**口径，揭晓拿到的是**户籍人口**口径，数字恰好落在预测区间内。
+
+| step | 模式 | 期望 |
+|---|---|---|
+| 1 | `reveal` | 报 `REVEAL_CALIBER_MISMATCH`（BLOCK） |
+| 2 | `postmortem` | `outcome_valid=false`、`outcome_status=INVALID`、`brier=None` |
+
+**核心原则**：**数字落进区间 ≠ 可以评分。** 口径不一致时，这个"命中"毫无意义 ——
+用户押的是常住人口，拿户籍人口的数去结算，评的不是同一件事。
+这一条最容易被"结果看起来对得上"掩盖，所以必须有独立用例钉住。
+
+---
+
+## 用例 26 · 裸 legacy actual 不得正式评分（v0.2.4）
+
+旧档案形态：`{"outcomes": {"GDP": {"actual": 500}}}` —— 只有数值，没有单位 / 口径 / 期间 / 来源。
+
+| step | 模式 | 期望 |
+|---|---|---|
+| 1 | `postmortem` | `actual_value=500`（读出）、`outcome_status=LEGACY_UNVERIFIED`、`outcome_valid=false`、`brier=None` |
+
+**核心原则**：兼容层的含义是「旧数据还能打开」，**不是**「旧数据可以免责」。
+裸 `actual` 可以被读出来查看与迁移，但**不得绕过完整性要求参加正式统计**。
+**反证**：变异 H（让裸 `actual` 继续评分）会让本用例转红。
+
+---
+
+## 用例 27 · 修订双轨评价（v0.2.4）
+
+`reveal-protocol.md` 早就要求"当时公布值与最新修订值两个都算、都要报"，
+但复盘实际只取一个数。本用例把这条规则变成可执行断言。
+
+夹具：评分命题 `threshold <= 800`，概率 0.70。
+`as_reported_then = 790`（≤800 → 命中）；`latest_revised = 812`（>800 → 未命中）。
+
+| 字段 | 期望 |
+|---|---|
+| `revision_tracks.as_reported_then` | `scored_event_hit=true`、`brier=0.09` |
+| `revision_tracks.latest_revised` | `scored_event_hit=false`、`brier=0.49` |
+| `revision_comparison` | `DIFFERENT` |
+| `outcome_flags` | 含 `OUTCOME_REVISION_SENSITIVE` |
+| `primary_actual_basis` | `latest_revised` |
+
+**核心原则**：两轨结论不同时，**前台必须明说**「按当时公布的 790：命中；
+按修订后的 812：未命中」，不得只给一个最终 verdict。
+`OUTCOME_REVISION_SENSITIVE` **不归入** REASONING / MODEL / PROBABILITY ——
+统计修订不是用户的推理错误。
+**反证**：变异 I（只评 `latest_revised`）会让本用例转红。

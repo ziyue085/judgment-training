@@ -1,0 +1,52 @@
+{
+  "case_id": "e2e-b-real-2012",
+  "historical_cutoff": "2012-12-31",
+  "forecast_to": "2015-12-31",
+  "DO_NOT_USE_FOR_REAL_TRAINING": true,
+  "rule": "只有 published_at <= historical_cutoff 的事实可以进入预测阶段；发布时间不明的不得使用。",
+  "entries": [
+    {
+      "id": "A1",
+      "fact": "淄博市 2011 年地区生产总值 = 3280.23 亿元",
+      "data_period": "2011",
+      "published_at": "2012-02-16",
+      "used_in_forecast": true,
+      "source": "《2011年淄博市国民经济和社会发展统计公报》（淄博市统计局，2012-02-16）"
+    },
+    {
+      "id": "A2",
+      "fact": "淄博市 2011 年人均地区生产总值 = 72380 元",
+      "data_period": "2011",
+      "published_at": "2012-02-16",
+      "used_in_forecast": true,
+      "source": "《2011年淄博市国民经济和社会发展统计公报》（淄博市统计局，2012-02-16）"
+    },
+    {
+      "id": "A3",
+      "fact": "淄博市地区生产总值 2007—2011 年度序列",
+      "data_period": "2007—2011",
+      "published_at": "各年度公报（2008-02 … 2012-02）",
+      "used_in_forecast": true,
+      "source": "各年度《淄博市国民经济和社会发展统计公报》",
+      "provenance_note": "本次交叉核对所用的《山东统计年鉴 2013》汇编发布于 2013 年，晚于截点，**不计入**允许清单，只做事后核对。"
+    },
+    {
+      "id": "X1",
+      "fact": "淄博市 2015 年地区生产总值 = 4130.2 亿元",
+      "data_period": "2015",
+      "published_at": "2016-03-01",
+      "used_in_forecast": false,
+      "source": "《2015年淄博市国民经济和社会发展统计公报》（淄博市统计局，2016-03-01）",
+      "note": "outcome 阶段才允许读取"
+    },
+    {
+      "id": "X2",
+      "fact": "淄博市 2015 年人均地区生产总值 = 89235 元",
+      "data_period": "2015",
+      "published_at": "2016-03-01",
+      "used_in_forecast": false,
+      "source": "《2015年淄博市国民经济和社会发展统计公报》（淄博市统计局，2016-03-01）",
+      "note": "outcome 阶段才允许读取"
+    }
+  ]
+}

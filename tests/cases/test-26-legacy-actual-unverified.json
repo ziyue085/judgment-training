@@ -1,0 +1,91 @@
+{
+  "id": "test-26-legacy-actual-unverified",
+  "title": "Test 26 · 裸 legacy actual 不得正式评分",
+  "scenario": "旧式档案只写 {\"actual\": 500}，没有 unit / caliber / period / source 任何正式揭晓元数据。数字 500 落在预测区间 [480,520] 内，按旧逻辑会判 PROCESS_GOOD_OUTCOME_HIT。v0.2.4 要求：允许把它读出来供查看与迁移（actual_value=500），但标记 LEGACY_UNVERIFIED，outcome_valid=false，interval_hit / scored_event_hit / brier 一律 null。兼容层意味着「旧数据还能打开」，不是「旧数据可以绕过新规则继续参加正式统计」。",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "case_id": "t26-legacy-actual",
+        "object": "某县",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "outcomes": {
+          "GDP": {
+            "actual": 500,
+            "note": "旧档案：只有一个裸数值，没有任何口径 / 期间 / 来源。"
+          }
+        },
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 120},
+              {"period": "2007", "value": 180},
+              {"period": "2008", "value": 250},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["运力瓶颈"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "probability": 0.8,
+            "proposition": "P(2013 年 GDP > 420 亿元)",
+            "scored_event": {"type": "threshold", "op": ">", "value": 420},
+            "reasoning": "按煤价与投资外推",
+            "failure_conditions": "煤价腰斩",
+            "counterargument": "煤价高位难持续",
+            "missing_info": "在建项目投产节奏"
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_INVALID",
+        "outcome_valid": false,
+        "outcome_status": "LEGACY_UNVERIFIED",
+        "n_hit": 0,
+        "n_miss": 0,
+        "n_unknown": 0,
+        "n_legacy_outcomes": 1,
+        "indicator_results": [
+          {
+            "indicator": "GDP",
+            "process_clean": true,
+            "outcome_valid": false,
+            "outcome_status": "LEGACY_UNVERIFIED",
+            "outcome_invalidating_codes": ["LEGACY_UNVERIFIED"],
+            "outcome_flags": ["OUTCOME_LEGACY_UNVERIFIED"],
+            "actual_value": 500,
+            "interval_hit": null,
+            "scored_event_hit": null,
+            "outcome_hit": null,
+            "brier": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -49,8 +49,9 @@ from judge_checks import (  # noqa: E402
 )
 
 CASES_DIR = HERE / "cases"
-SCALAR_KEYS = ("verdict", "case_summary_overall", "outcome_status",
-               "n_hit", "n_miss", "n_unknown", "lockable")
+SCALAR_KEYS = ("verdict", "case_summary_overall", "outcome_status", "outcome_valid",
+               "n_hit", "n_miss", "n_unknown", "n_invalid_outcomes", "n_legacy_outcomes",
+               "lockable")
 
 
 def run_step(step):
@@ -80,6 +81,8 @@ def run_step(step):
             "error_attribution": result["error_attribution"],
             "interval_hit": result["interval_hit"],
             "scored_event_hit": result["scored_event_hit"],
+            "outcome_valid": result["outcome_valid"],
+            "brier": result["brier"],
             "indicator_verdicts": [r["verdict"] for r in result["indicator_results"]],
             "indicator_results": result["indicator_results"],
             "case_summary_overall": result["case_summary"]["overall"],
@@ -87,6 +90,8 @@ def run_step(step):
             "n_hit": result["case_summary"]["n_hit"],
             "n_miss": result["case_summary"]["n_miss"],
             "n_unknown": result["case_summary"]["n_unknown"],
+            "n_invalid_outcomes": result["case_summary"]["n_invalid_outcomes"],
+            "n_legacy_outcomes": result["case_summary"]["n_legacy_outcomes"],
             "case_fatal_codes": result["case_level"]["case_fatal_codes"],
         }
     else:

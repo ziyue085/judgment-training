@@ -1,0 +1,164 @@
+{
+  "id": "test-25-caliber-mismatch-no-scoring",
+  "title": "Test 25 · 口径不符不得评分（数字碰巧一致 ≠ 可以评分）",
+  "scenario": "预测的是「常住人口」，揭晓取的是「户籍人口」。实际数字 45 恰好落在预测区间 [40,50] 内——按值算本该命中。但口径不一致时命中判定整体作废：outcome_valid=false，Brier 不出数。这是 §14 的核心：不得因为数字碰巧一致就评分。",
+  "steps": [
+    {
+      "mode": "reveal",
+      "case": {
+        "case_id": "t25-caliber-mismatch",
+        "object": "某县",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "outcomes": {
+          "常住人口": {
+            "actual_value": 45,
+            "actual_unit": "万人",
+            "actual_caliber": "户籍人口口径、全市",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "某县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-03",
+            "revision_status": "initial"
+          }
+        },
+        "indicators": [
+          {
+            "name": "常住人口",
+            "kind": "quantity",
+            "base_value": 38,
+            "base_unit": "万人",
+            "base_caliber": "常住人口口径、全市",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 34},
+              {"period": "2007", "value": 35},
+              {"period": "2008", "value": 37},
+              {"period": "2009", "value": 38}
+            ],
+            "history_basis": "trend",
+            "drivers": ["就业吸引"],
+            "constraints": ["户籍政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 40,
+            "forecast_high": 50,
+            "probability": 0.6,
+            "proposition": "P(2013 年常住人口 ∈ [40,50] 万人) = 60%",
+            "scored_event": {"type": "interval", "low": 40, "high": 50},
+            "reasoning": "按就业吸纳与自然增长外推",
+            "failure_conditions": "产业收缩导致人口回流",
+            "counterargument": "户籍门槛放宽会低估常住人口",
+            "missing_info": "分行业用工数据"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["REVEAL_CALIBER_MISMATCH"],
+        "must_not_codes": ["REVEAL_OK", "REVEAL_TARGET_PERIOD_MISMATCH"]
+      }
+    },
+    {
+      "mode": "postmortem",
+      "case": {
+        "case_id": "t25-caliber-mismatch",
+        "object": "某县",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "outcomes": {
+          "常住人口": {
+            "actual_value": 45,
+            "actual_unit": "万人",
+            "actual_caliber": "户籍人口口径、全市",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "某县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-03",
+            "revision_status": "initial"
+          }
+        },
+        "indicators": [
+          {
+            "name": "常住人口",
+            "kind": "quantity",
+            "base_value": 38,
+            "base_unit": "万人",
+            "base_caliber": "常住人口口径、全市",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 34},
+              {"period": "2007", "value": 35},
+              {"period": "2008", "value": 37},
+              {"period": "2009", "value": 38}
+            ],
+            "history_basis": "trend",
+            "drivers": ["就业吸引"],
+            "constraints": ["户籍政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 40,
+            "forecast_high": 50,
+            "probability": 0.6,
+            "proposition": "P(2013 年常住人口 ∈ [40,50] 万人) = 60%",
+            "scored_event": {"type": "interval", "low": 40, "high": 50},
+            "reasoning": "按就业吸纳与自然增长外推",
+            "failure_conditions": "产业收缩导致人口回流",
+            "counterargument": "户籍门槛放宽会低估常住人口",
+            "missing_info": "分行业用工数据"
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_INVALID",
+        "outcome_valid": false,
+        "outcome_status": "INVALID",
+        "n_hit": 0,
+        "n_miss": 0,
+        "n_unknown": 0,
+        "n_invalid_outcomes": 1,
+        "indicator_results": [
+          {
+            "indicator": "常住人口",
+            "process_clean": true,
+            "outcome_valid": false,
+            "outcome_status": "INVALID",
+            "outcome_invalidating_codes": ["REVEAL_CALIBER_MISMATCH"],
+            "actual_value": 45,
+            "interval_hit": null,
+            "scored_event_hit": null,
+            "outcome_hit": null,
+            "brier": null
+          }
+        ]
+      }
+    }
+  ]
+}

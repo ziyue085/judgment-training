@@ -36,7 +36,14 @@
           }
         ],
         "outcome": {
-          "actual": 505,
+          "actual_value": 505,
+          "actual_unit": "亿元",
+          "actual_caliber": "当年价/全市",
+          "actual_period": "2015",
+          "actual_period_end": "2015-12-31",
+          "source": "某市 2015 年国民经济和社会发展统计公报",
+          "published_at": "2016-03",
+          "revision_status": "initial",
           "note": "用户纯凭直觉报了一个数，结果碰巧非常接近。"
         }
       },

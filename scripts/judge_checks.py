@@ -783,12 +783,129 @@ REVEAL_REQUIRED = (("actual_value", "结果值"), ("actual_unit", "单位"),
 REVEAL_RECORD_KEYS = ("actual_value", "actual_unit", "actual_caliber", "actual_period",
                       "source", "revision_status", "as_reported_then", "latest_revised")
 
+# ------------------------------------------------- 结果完整性（v0.2.4）
+#
+# 核心原则（写死，不留给解释）：
+#
+#     预测过程质量   ≠   结果能否用于评分
+#
+# 用户预测过程可以完全优秀，但揭晓时拿错了年份 / 口径 / 单位 / 来源 / 指标。
+# 这**不说明用户预测过程差**，而是"这份答案没有资格评价预测结果"。
+# 因此必须允许且必须表达：process_clean = true 且 outcome_valid = false。
+#
+# 同理，兼容层的含义是「旧数据还能打开」，
+# **不是**「旧数据可以绕过新规则继续参加正式统计」。
+
+# 使结果**失去评分资格**的错误码（口径 / 期间 / 核心字段）。
+OUTCOME_INVALIDATING_CODES = (
+    "REVEAL_CALIBER_MISMATCH",        # 口径不符：命中判定整体作废
+    "REVEAL_TARGET_PERIOD_MISMATCH",  # 期间不符：拿别的年份结算
+    "REVEAL_FIELD_MISSING",           # 仅当 severity == BLOCK（核心字段缺失）
+)
+
+# 核心字段：缺一即 INVALID（与 check_reveal 的 BLOCK 语义一致）
+OUTCOME_CORE_FIELDS = ("actual_value", "actual_unit", "actual_caliber",
+                       "actual_period", "source")
+
+# 结果状态四态（+ 旧档）：
+#   VALID              字段齐、口径合、期间对 —— 可以正式评分
+#   INVALID            已知结果，但这份数据不能用于评分
+#   LEGACY_UNVERIFIED  只有裸 `actual`，无正式揭晓元数据 —— 仅供查看 / 迁移
+#   UNKNOWN            根本没有结果
+#
+# 「未知」与「已知但不能评分」是两件完全不同的事，必须分开表达。
+OUTCOME_VALID = "VALID"
+OUTCOME_INVALID = "INVALID"
+OUTCOME_LEGACY = "LEGACY_UNVERIFIED"
+OUTCOME_UNKNOWN = "UNKNOWN"
+
+# 这些是**结果侧**的问题：影响记录质量，但不归因到用户预测推理上。
+OUTCOME_SIDE_CODES = {
+    "REVEAL_FIELD_MISSING", "REVEAL_CALIBER_MISMATCH", "REVEAL_TARGET_PERIOD_MISMATCH",
+    "REVEAL_PERIOD_MISMATCH", "REVEAL_REVISION_UNRECORDED", "REVEAL_RECORD_MINIMAL",
+    "REVEAL_SOURCE_TIER_LOW", "REVEAL_OK",
+}
+
+# 修订双轨（Reveal Protocol 第四节）：两个数都要留、都要算。
+REVISION_TRACK_FIELDS = ("as_reported_then", "latest_revised")
+
 
 def _find_indicator(case, name):
     for i, ind in enumerate(case.get("indicators") or []):
         if (ind.get("name") or f"indicator[{i}]") == name:
             return ind
     return None
+
+
+def _reveal_findings_for_record(scope, rec, ind, case, stage) -> list[Finding]:
+    """单条揭晓记录的字段 / 口径 / 期间核验。
+
+    v0.2.4：从 `check_reveal()` 抽成独立函数，供 `check_reveal()` 与
+    `validate_outcome_for_scoring()` 共用。
+
+    这样 `postmortem()` 可以**自己**校验结果记录，不必依赖
+    "状态机之前已经跑过 check_reveal" —— CLI、测试、旧档案加载
+    都可能直接调用 postmortem，防御必须内置。
+    """
+    out: list[Finding] = []
+    obj_type = str(case.get("object_type") or "city").lower()
+    tier = REVEAL_SOURCE_TIERS.get(obj_type, REVEAL_SOURCE_TIERS["city"])
+
+    formal = any(k in rec for k in REVEAL_RECORD_KEYS)
+    if not formal:
+        out.append(Finding("REVEAL_RECORD_MINIMAL", WARN, scope,
+                           "结果记录只有一个裸数值，没有口径 / 来源 / 期间。",
+                           "复盘算命中可以用，但正式揭晓必须补全口径与来源。"))
+        if stage != "REVEAL":
+            return out
+
+    for key, label in REVEAL_REQUIRED:
+        if rec.get(key) in (None, ""):
+            out.append(Finding("REVEAL_FIELD_MISSING", BLOCK, scope,
+                               f"揭晓记录缺少{label}（{key}）。"))
+    if rec.get("published_at") in (None, ""):
+        out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope, "揭晓记录缺少公开时间。"))
+    if rec.get("revision_status") in (None, ""):
+        out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope,
+                           "揭晓记录缺少修订状态（initial / revised / final / unknown）。"))
+
+    src = str(rec.get("source") or "")
+    if src and not any(t.lower() in src.lower() for t in tier):
+        out.append(Finding("REVEAL_SOURCE_TIER_LOW", WARN, scope,
+                           f"来源「{src}」不属于该对象类型的优先来源层级。",
+                           f"{'城市' if obj_type == 'city' else '企业'}优先："
+                           + " / ".join(tier) + "。其他来源只能作补充。"))
+
+    if ind is not None:
+        bc = str(ind.get("base_caliber") or "").strip()
+        ac = str(rec.get("actual_caliber") or "").strip()
+        if bc and ac and bc != ac:
+            out.append(Finding("REVEAL_CALIBER_MISMATCH", BLOCK, scope,
+                               f"结果口径「{ac}」与基期口径「{bc}」不一致。",
+                               "口径不一致时命中判定无效：常住/户籍、当年价/不变价、全市/市辖区。"))
+        bp = str(ind.get("base_period") or "").strip()
+        ap = str(rec.get("actual_period") or "").strip()
+        if bp and ap and bp == ap:
+            out.append(Finding("REVEAL_PERIOD_MISMATCH", WARN, scope,
+                               f"结果期间「{ap}」与基期期间相同，疑似取错时点。"))
+
+    if str(rec.get("revision_status") or "").lower() in ("revised", "final") \
+            and not rec.get("as_reported_then"):
+        out.append(Finding("REVEAL_REVISION_UNRECORDED", WARN, scope,
+                           "结果标注为已修订 / 终值，但未保留当时公布值（as_reported_then）。",
+                           "须同时保留「当时公布值」与「后来修订值」，不得只留对预测有利的那个。"))
+
+    # v0.2.3 §14—§17：揭晓最隐蔽的错不是"值不对"，而是"值对错了年份"。
+    # 旧实现只做 base_period == actual_period 的 WARN，完全不校验预测目标期。
+    period_end = rec.get("actual_period_end") or rec.get("actual_period")
+    match = period_matches_forecast_target(period_end, case.get("forecast_to"))
+    if match is False:
+        out.append(Finding("REVEAL_TARGET_PERIOD_MISMATCH", BLOCK, scope,
+                           f"结果所属期末 {period_end} 与预测目标期 "
+                           f"{case.get('forecast_to')} 不一致。",
+                           "命中的前提是同一个时期：先对齐期间，再谈命中。"))
+
+    return out
 
 
 def check_reveal(case) -> list[Finding]:
@@ -798,9 +915,7 @@ def check_reveal(case) -> list[Finding]:
     并检查口径与预测所用的 base / proposition 是否一致。
     城市优先统计公报/年鉴/官方数据库；企业优先年报/交易所披露/法定文件。
     """
-    out: list[Finding] = []
     names = _indicator_names(case)
-
     records = []
     explicit = case.get("outcomes")
     if isinstance(explicit, dict):
@@ -811,70 +926,82 @@ def check_reveal(case) -> list[Finding]:
         records.append((f"结果「{names[0]}」", case["outcome"], _find_indicator(case, names[0])))
 
     if not records:
-        return out
+        return []
 
     stage = str(case.get("stage") or "").upper()
-    obj_type = str(case.get("object_type") or "city").lower()
-    tier = REVEAL_SOURCE_TIERS.get(obj_type, REVEAL_SOURCE_TIERS["city"])
-
+    out: list[Finding] = []
     for scope, rec, ind in records:
-        formal = any(k in rec for k in REVEAL_RECORD_KEYS)
-        if not formal:
-            out.append(Finding("REVEAL_RECORD_MINIMAL", WARN, scope,
-                               "结果记录只有一个裸数值，没有口径 / 来源 / 期间。",
-                               "复盘算命中可以用，但正式揭晓必须补全口径与来源。"))
-            if stage != "REVEAL":
-                continue
-
-        for key, label in REVEAL_REQUIRED:
-            if rec.get(key) in (None, ""):
-                out.append(Finding("REVEAL_FIELD_MISSING", BLOCK, scope,
-                                   f"揭晓记录缺少{label}（{key}）。"))
-        if rec.get("published_at") in (None, ""):
-            out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope, "揭晓记录缺少公开时间。"))
-        if rec.get("revision_status") in (None, ""):
-            out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope,
-                               "揭晓记录缺少修订状态（initial / revised / final / unknown）。"))
-
-        src = str(rec.get("source") or "")
-        if src and not any(t.lower() in src.lower() for t in tier):
-            out.append(Finding("REVEAL_SOURCE_TIER_LOW", WARN, scope,
-                               f"来源「{src}」不属于该对象类型的优先来源层级。",
-                               f"{'城市' if obj_type == 'city' else '企业'}优先："
-                               + " / ".join(tier) + "。其他来源只能作补充。"))
-
-        if ind is not None:
-            bc = str(ind.get("base_caliber") or "").strip()
-            ac = str(rec.get("actual_caliber") or "").strip()
-            if bc and ac and bc != ac:
-                out.append(Finding("REVEAL_CALIBER_MISMATCH", BLOCK, scope,
-                                   f"结果口径「{ac}」与基期口径「{bc}」不一致。",
-                                   "口径不一致时命中判定无效：常住/户籍、当年价/不变价、全市/市辖区。"))
-            bp = str(ind.get("base_period") or "").strip()
-            ap = str(rec.get("actual_period") or "").strip()
-            if bp and ap and bp == ap:
-                out.append(Finding("REVEAL_PERIOD_MISMATCH", WARN, scope,
-                                   f"结果期间「{ap}」与基期期间相同，疑似取错时点。"))
-
-        if str(rec.get("revision_status") or "").lower() in ("revised", "final") \
-                and not rec.get("as_reported_then"):
-            out.append(Finding("REVEAL_REVISION_UNRECORDED", WARN, scope,
-                               "结果标注为已修订 / 终值，但未保留当时公布值（as_reported_then）。",
-                               "须同时保留「当时公布值」与「后来修订值」，不得只留对预测有利的那个。"))
-
-        # v0.2.3 §14—§17：揭晓最隐蔽的错不是"值不对"，而是"值对错了年份"。
-        # 旧实现只做 base_period == actual_period 的 WARN，完全不校验预测目标期。
-        period_end = rec.get("actual_period_end") or rec.get("actual_period")
-        match = period_matches_forecast_target(period_end, case.get("forecast_to"))
-        if match is False:
-            out.append(Finding("REVEAL_TARGET_PERIOD_MISMATCH", BLOCK, scope,
-                               f"结果所属期末 {period_end} 与预测目标期 "
-                               f"{case.get('forecast_to')} 不一致。",
-                               "命中的前提是同一个时期：先对齐期间，再谈命中。"))
+        out += _reveal_findings_for_record(scope, rec, ind, case, stage)
 
     if not out:
         out.append(Finding("REVEAL_OK", INFO, "<case>", "揭晓记录字段与口径核验通过。"))
     return out
+
+
+def validate_outcome_for_scoring(case, indicator, outcome) -> dict:
+    """结果数据是否有资格参与**正式预测评分**（v0.2.4 新增）。
+
+    这是 v0.2.4 的核心：把「预测过程质量」与「结果是否可用于评分」彻底分开。
+
+    返回::
+
+        {
+          "valid": bool,                 # 能否正式评分
+          "status": VALID | INVALID | LEGACY_UNVERIFIED | UNKNOWN,
+          "invalidating_codes": [...],   # 真正影响评分合法性的错误
+          "warnings": [...],             # 只影响记录质量
+          "legacy": bool,                # 是否只有裸 actual 的旧档
+          "primary_basis": "actual_value" | "as_reported_then" | "latest_revised",
+          "display_value": 可为 None,    # 仅供展示 / 阅读
+        }
+
+    划分原则（不把 Reveal 的所有 WARN 都变成 INVALID）：
+
+      * 口径不符 / 目标期不符 / 核心字段缺失（BLOCK 级）→ **INVALID**
+      * 来源层级低 / 缺公开时间 / 缺修订状态 / 期间疑似取错 → 仅 warning
+      * 只有裸 `actual`（无正式揭晓元数据）→ **LEGACY_UNVERIFIED**
+    """
+    name = (indicator or {}).get("name")
+    scope = f"结果「{name}」" if name else "<outcome>"
+
+    if not isinstance(outcome, dict) or not outcome:
+        return {"valid": False, "status": OUTCOME_UNKNOWN, "invalidating_codes": [],
+                "warnings": [], "legacy": False, "primary_basis": None,
+                "display_value": None}
+
+    # v0.2.4 §11：只有旧字段 actual、没有任何正式揭晓元数据。
+    # 允许把它读出来给人看 / 供迁移，但**绝不**据此正式评分。
+    formal_keys = [k for k in REVEAL_RECORD_KEYS if outcome.get(k) not in (None, "")]
+    if not formal_keys and outcome.get("actual") is not None:
+        return {"valid": False, "status": OUTCOME_LEGACY,
+                "invalidating_codes": ["LEGACY_UNVERIFIED"],
+                "warnings": ["REVEAL_RECORD_MINIMAL"],
+                "legacy": True, "primary_basis": "actual",
+                "display_value": outcome.get("actual")}
+
+    stage = str(case.get("stage") or "").upper()
+    findings = _reveal_findings_for_record(scope, outcome, indicator, case, stage)
+    inval = sorted({f.code for f in findings
+                    if f.severity == BLOCK and f.code in OUTCOME_INVALIDATING_CODES})
+    soft = sorted({f.code for f in findings if f.code not in inval})
+
+    basis = "actual_value"
+    if outcome.get("latest_revised") is not None:
+        basis = "latest_revised"
+    elif outcome.get("as_reported_then") is not None:
+        basis = "as_reported_then"
+
+    display = outcome.get("actual_value")
+    if display is None:
+        display = outcome.get("actual")
+
+    return {"valid": not inval,
+            "status": OUTCOME_VALID if not inval else OUTCOME_INVALID,
+            "invalidating_codes": inval,
+            "warnings": soft,
+            "legacy": False,
+            "primary_basis": basis,
+            "display_value": display}
 
 
 def check_case(case) -> list[Finding]:
@@ -997,6 +1124,11 @@ VERDICT_NOTES = {
     "PROCESS_GOOD_OUTCOME_HIT": "过程与结果均达标。",
     "PROCESS_GOOD_OUTCOME_MISS": "结果落在低概率情景，但过程合理且概率诚实：不得判定过程失败。",
     "PROCESS_GOOD_OUTCOME_UNKNOWN": "过程合理，但结果尚未提供 / 尚未揭晓：不得视为失败，也不得视为成功。",
+    "PROCESS_GOOD_OUTCOME_INVALID": (
+        "过程合理，但**这份答案没有资格评价预测**：结果记录期间 / 口径 / 字段不合法。"
+        "数据问题不得写成用户推理失败 —— 修好结果记录再谈命中。"),
+    "PROCESS_DEFECTIVE_OUTCOME_INVALID": (
+        "过程有缺陷，且结果数据本身也不合法：两件事分开记账，不得用数据问题掩盖过程问题。"),
     "LUCKY_ACCURATE": "结果正确不等于预测优秀：过程存在缺陷，命中应归因于运气。",
     "PROCESS_DEFECTIVE_OUTCOME_MISS": "过程有缺陷且未命中，按 error_attribution 分项复盘。",
     "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN": "过程缺陷已足以判定当时不应 LOCK —— 无需知道结果即可定论。",
@@ -1025,8 +1157,18 @@ def _attribution(codes_):
     return att
 
 
-def _quadrant(clean: bool, hit):
-    """过程质量 × 结果 的六象限。hit=None 是"未知"，不是"未命中"。"""
+def _quadrant(clean: bool, hit, outcome_valid: bool = True):
+    """过程质量 × 结果的六象限（v0.2.4 增至八象限）。
+
+    `hit=None` 是"未知"，不是"未命中"。
+
+    v0.2.4 新增两支：`outcome_valid=False` 表示**结果数据本身不合法**
+    （期间错 / 口径错 / 字段缺）。此时**不得**给出 HIT / MISS ——
+    那等于把揭晓数据的错误说成用户预测的成败。
+    """
+    if not outcome_valid:
+        return ("PROCESS_GOOD_OUTCOME_INVALID" if clean
+                else "PROCESS_DEFECTIVE_OUTCOME_INVALID")
     if clean:
         if hit is True:
             return "PROCESS_GOOD_OUTCOME_HIT"
@@ -1079,6 +1221,36 @@ def _outcomes_for(case):
     return out_map, warn
 
 
+def _revision_track(value, scored_event, ind, prob) -> dict:
+    """单条结果值的评分轨：区间命中 / 评分命题命中 / Brier。
+
+    v0.2.4：修订双轨（`as_reported_then` / `latest_revised`）各自调用本函数，
+    绝不"偷偷挑一个"。Brier 依旧只针对 `scored_event`（v0.2.3 §3）。
+    """
+    lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
+    hit = None
+    if value is not None and lo is not None and hi is not None:
+        try:
+            hit = float(lo) <= float(value) <= float(hi)
+        except (TypeError, ValueError):
+            hit = None
+    se_hit = evaluate_scored_event(value, scored_event, ind.get("base_value"))
+    brier = (prob - (1.0 if se_hit else 0.0)) ** 2 \
+        if (prob is not None and se_hit is not None) else None
+    return {
+        "value": value,
+        "interval_hit": hit,
+        "scored_event_hit": se_hit,
+        # 与主轨一致：裁决优先用评分命题命中，没有评分命题才退回区间命中
+        "outcome_hit": se_hit if se_hit is not None else hit,
+        "brier": None if brier is None else round(brier, 6),
+    }
+
+
+def _track_signature(track) -> tuple:
+    return (track.get("interval_hit"), track.get("scored_event_hit"))
+
+
 def postmortem(case) -> dict:
     """复盘裁决（v0.2.2）：逐指标裁决 + 作用域归因 + 案例级汇总。
 
@@ -1087,12 +1259,18 @@ def postmortem(case) -> dict:
         唯一例外是 case 级致命缺陷（信息污染 / 未设截点）——那会让整轮作废。
       - **未知 ≠ 未命中**：没有结果输入时给 `*_OUTCOME_UNKNOWN`，
         不得因为"没有命中记录"就判成 MISS。
+      - **v0.2.4 结果完整性**：结果数据本身不合法时，**绝不**给预测打分。
+        `process_clean`（预测过程）与 `outcome_valid`（结果可用性）是两条独立的账。
+        揭晓侧的发现（`OUTCOME_SIDE_CODES`）不计入过程归因。
     """
     findings = case.get("checks", {}).get("findings") or []
     indicators = case.get("indicators") or []
     ind_scopes = {f"指标「{n}」" for n in _indicator_names(case)}
 
-    case_findings = [f for f in findings if _scope_of(f) not in ind_scopes]
+    # 结果侧的发现（口径 / 期间 / 字段）单独记账：不得归因成用户推理错误（§3）
+    case_findings = [f for f in findings
+                     if _scope_of(f) not in ind_scopes
+                     and f.get("code") not in OUTCOME_SIDE_CODES]
     case_block = _codes_of(case_findings, BLOCK)
     case_warn = _codes_of(case_findings, WARN)
     case_fatal = sorted(set(case_block) & CASE_FATAL_CODES)
@@ -1109,42 +1287,75 @@ def postmortem(case) -> dict:
         name = ind.get("name") or f"indicator[{i}]"
         scope = f"指标「{name}」"
         ind_findings = [f for f in findings if _scope_of(f) == scope]
-        blocks = _codes_of(ind_findings, BLOCK)
-        warns = _codes_of(ind_findings, WARN)
+        # 过程侧 vs 结果侧：揭晓数据的问题**不**写进过程归因（§3）
+        process_findings = [f for f in ind_findings
+                            if f.get("code") not in OUTCOME_SIDE_CODES]
+        outcome_findings = [f for f in ind_findings
+                            if f.get("code") in OUTCOME_SIDE_CODES]
+        blocks = _codes_of(process_findings, BLOCK)
+        warns = _codes_of(process_findings, WARN)
 
         clean = (not blocks) and (not case_fatal)
 
         oc = out_map.get(name) or {}
         lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
-        # v0.2.3 §1：揭晓写的是 `actual_value`，复盘却一直只读 `actual` ——
-        # 于是"揭晓成功、复盘却当没揭晓"（OUTCOME_UNKNOWN）。`actual` 仅作旧档案兼容。
-        actual = oc.get("actual_value")
-        if actual is None:
-            actual = oc.get("actual")
-
-        # 区间命中：用户对"落在哪一段"的承诺
-        hit = oc.get("interval_hit")
-        if hit is None and actual is not None and lo is not None and hi is not None:
-            try:
-                hit = float(lo) <= float(actual) <= float(hi)
-            except (TypeError, ValueError):
-                hit = None
-
-        # v0.2.3 §8：评分命题命中是**另一个概念**，与区间命中分开输出。
-        # 允许合法地出现 interval_hit=false / scored_event_hit=true。
-        ev, _ = scored_event_of(ind)
-        se_hit = oc.get("scored_event_hit")
-        if se_hit is None:
-            se_hit = evaluate_scored_event(actual, ev, ind.get("base_value"))
-
         try:
             prob = float(ind.get("probability"))
         except (TypeError, ValueError):
             prob = None
-        # v0.2.3 §3/§7：Brier 必须针对"同一个概率命题" = scored_event。
-        # 旧实现直接拿 interval_hit 代入，等于用一个用户没赌过的区间给概率打分。
-        brier = (prob - (1.0 if se_hit else 0.0)) ** 2 \
-            if (prob is not None and se_hit is not None) else None
+        ev, _ = scored_event_of(ind)
+
+        # ---- v0.2.4 §6：进入评分前，postmortem **自己**校验结果数据 ----
+        # 不依赖"状态机之前已经跑过 check_reveal"——CLI / 测试 / 旧档案都可能直接调它。
+        ov = validate_outcome_for_scoring(case, ind, oc)
+        outcome_status = ov["status"]
+        outcome_valid = bool(ov["valid"])
+
+        # 展示用实际值：即使不可评分也保留，供人类阅读与数据迁移
+        display_actual = ov.get("display_value")
+        if display_actual is None:
+            display_actual = oc.get("actual_value")
+            if display_actual is None:
+                display_actual = oc.get("actual")
+
+        basis = ov.get("primary_basis")
+        if outcome_valid:
+            primary_value = oc.get(basis) if basis else None
+            if primary_value is None:
+                primary_value = oc.get("actual_value")
+            if primary_value is None:
+                primary_value = oc.get("actual")
+            main = _revision_track(primary_value, ev, ind, prob)
+        else:
+            # 结果不合法：**绝不**偷偷评分。actual_value 留着，命中与 Brier 一律 None。
+            main = {"value": None, "interval_hit": None, "scored_event_hit": None,
+                    "outcome_hit": None, "brier": None}
+
+        # ---- 修订双轨（§16—§21）：两个数都算，不挑一个 ----
+        tracks = {}
+        if outcome_valid:
+            if oc.get("as_reported_then") is not None:
+                tracks["as_reported_then"] = _revision_track(
+                    oc["as_reported_then"], ev, ind, prob)
+            if oc.get("latest_revised") is not None:
+                tracks["latest_revised"] = _revision_track(
+                    oc["latest_revised"], ev, ind, prob)
+        if len(tracks) == 2:
+            comparison = ("SAME" if len({_track_signature(t) for t in tracks.values()}) == 1
+                          else "DIFFERENT")
+        else:
+            comparison = "UNAVAILABLE"
+
+        outcome_flags = []
+        if comparison == "DIFFERENT":
+            # 统计修订属于 outcome measurement，**不是**用户推理错误（§22）
+            outcome_flags.append("OUTCOME_REVISION_SENSITIVE")
+        if outcome_status == OUTCOME_LEGACY:
+            outcome_flags.append("OUTCOME_LEGACY_UNVERIFIED")
+
+        # 只有"已知但不能用于评分"才落到 INVALID 象限；
+        # 「根本没有结果」（UNKNOWN）仍然是 UNKNOWN，不是 INVALID。
+        outcome_usable = outcome_status in (OUTCOME_VALID, OUTCOME_UNKNOWN)
 
         indicator_results.append({
             "indicator": name,
@@ -1153,20 +1364,29 @@ def postmortem(case) -> dict:
             "forecast_low": lo,
             "forecast_high": hi,
             "forecast_range": [lo, hi] if (lo is not None or hi is not None) else None,
-            "actual_value": actual,
-            "actual": actual,          # v0.2.1 兼容别名（新档案请用 actual_value）
-            "interval_hit": hit,
+            "actual_value": display_actual,
+            "actual": display_actual,   # v0.2.1 兼容别名（新档案请用 actual_value）
+            "interval_hit": main["interval_hit"],
             "scored_event": ev,
-            "scored_event_hit": se_hit,
+            "scored_event_hit": main["scored_event_hit"],
             # v0.2.3：裁决与 Brier 用**同一个**结果——评分命题优先。
-            # 没有评分命题时才退回区间命中（老档案 / 无概率的纯区间预测）。
-            "outcome_hit": se_hit if se_hit is not None else hit,
-            "brier": None if brier is None else round(brier, 6),
+            "outcome_hit": main["outcome_hit"],
+            "brier": main["brier"],
+            # ---- v0.2.4 结果完整性 ----
+            "outcome_valid": outcome_valid,
+            "outcome_status": outcome_status,
+            "outcome_invalidating_codes": ov["invalidating_codes"],
+            "outcome_warnings": ov["warnings"],
+            "outcome_flags": outcome_flags,
+            "primary_actual_basis": basis,
+            "revision_comparison": comparison,
+            "revision_tracks": tracks,
             "block_codes": blocks,
             "warn_codes": warns,
+            "outcome_side_codes": _codes_of(outcome_findings),
             "error_attribution": sorted(_attribution(blocks + warns).keys()),
             "process_clean": clean,
-            "verdict": _quadrant(clean, se_hit if se_hit is not None else hit),
+            "verdict": _quadrant(clean, main["outcome_hit"], outcome_usable),
             "note": oc.get("note") if isinstance(oc, dict) else None,
         })
 
@@ -1195,7 +1415,31 @@ def postmortem(case) -> dict:
 
     first = indicator_results[0] if indicator_results else None
     top_verdict = first["verdict"] if first else overall
-    resolved = [r for r in indicator_results if r["outcome_hit"] is not None]
+
+    # ---- 结果状态（v0.2.4 §7）----
+    # 「未知」与「已知但不能用于评分」必须分开计数。
+    n_total = len(indicator_results)
+    statuses = [r["outcome_status"] for r in indicator_results]
+    n_valid = sum(1 for s in statuses if s == OUTCOME_VALID)
+    n_invalid = sum(1 for s in statuses if s == OUTCOME_INVALID)
+    n_legacy = sum(1 for s in statuses if s == OUTCOME_LEGACY)
+    n_out_unknown = sum(1 for s in statuses if s == OUTCOME_UNKNOWN)
+    # 结果合法、但当前无法判定命中（例如无区间且命题不可判）——与"没有结果"不同
+    n_unscored = sum(1 for r in indicator_results
+                     if r["outcome_valid"] and r["outcome_hit"] is None)
+
+    if n_total == 0:
+        outcome_status = OUTCOME_UNKNOWN
+    elif n_valid == n_total:
+        outcome_status = "REVEALED"
+    elif n_valid > 0:
+        outcome_status = ("PARTIAL_INVALID" if (n_invalid + n_legacy) > 0 else "PARTIAL")
+    elif n_invalid > 0:
+        outcome_status = "INVALID"
+    elif n_legacy > 0:
+        outcome_status = OUTCOME_LEGACY
+    else:
+        outcome_status = OUTCOME_UNKNOWN
 
     return {
         # ---- 兼容字段（v0.2.1 及以前的调用方）：单指标时语义不变 ----
@@ -1207,6 +1451,9 @@ def postmortem(case) -> dict:
         "scored_event_hit": first["scored_event_hit"] if first else None,
         "brier": first["brier"] if (first and len(indicator_results) == 1) else None,
         "process_clean": bool(first["process_clean"]) if first else False,
+        # v0.2.4：结果可用性与过程质量分开报
+        "outcome_valid": bool(first["outcome_valid"]) if first else False,
+        "outcome_status": (first["outcome_status"] if first else OUTCOME_UNKNOWN),
         # ---- 新结构 ----
         "indicator_results": indicator_results,
         "case_level": {
@@ -1216,20 +1463,23 @@ def postmortem(case) -> dict:
             "error_attribution": sorted(case_att.keys()),
         },
         "case_summary": {
-            "n_indicators": len(indicator_results),
+            "n_indicators": n_total,
             "n_hit": sum(1 for r in indicator_results if r["outcome_hit"] is True),
             "n_miss": sum(1 for r in indicator_results if r["outcome_hit"] is False),
-            "n_unknown": sum(1 for r in indicator_results if r["outcome_hit"] is None),
+            "n_unknown": n_out_unknown,
             # 区间视角的命中计数，与评分命题视角分开（两者可合法不同）
             "n_interval_hit": sum(1 for r in indicator_results if r["interval_hit"] is True),
             "n_interval_miss": sum(1 for r in indicator_results if r["interval_hit"] is False),
+            # v0.2.4：结果完整性计数
+            "n_valid_outcomes": n_valid,
+            "n_invalid_outcomes": n_invalid,
+            "n_legacy_outcomes": n_legacy,
+            "n_unscored_valid": n_unscored,
+            "outcome_states": {"valid": n_valid, "invalid": n_invalid,
+                               "legacy_unverified": n_legacy, "unknown": n_out_unknown},
             "verdict_counts": counts,
             "overall": overall,
-            "outcome_status": (
-                "PARTIAL" if 0 < len(resolved) < len(indicator_results)
-                else "REVEALED" if indicator_results and len(resolved) == len(indicator_results)
-                else "UNKNOWN"
-            ),
+            "outcome_status": outcome_status,
         },
         "notes": VERDICT_NOTES.get(overall, "") if overall.startswith("CASE_") and overall in ("CASE_INVALIDATED", "CASE_NO_INDICATORS", "CASE_MIXED") else VERDICT_NOTES.get(top_verdict, ""),
     }
@@ -1365,7 +1615,8 @@ def main(argv=None) -> int:
                 cs, cl = result["case_summary"], result["case_level"]
                 print(f"case_summary.overall : {cs['overall']}")
                 print(f"outcome_status       : {cs['outcome_status']}  "
-                      f"(hit={cs['n_hit']} miss={cs['n_miss']} unknown={cs['n_unknown']})")
+                      f"(hit={cs['n_hit']} miss={cs['n_miss']} unknown={cs['n_unknown']} "
+                      f"invalid={cs['n_invalid_outcomes']} legacy={cs['n_legacy_outcomes']})")
                 if cl["case_fatal_codes"]:
                     print(f"case_fatal           : {', '.join(cl['case_fatal_codes'])}")
                 if cl["block_codes"]:
@@ -1378,9 +1629,26 @@ def main(argv=None) -> int:
                     print(f"    forecast    : {r['forecast_range']}")
                     print(f"    scored_event: {json.dumps(r['scored_event'], ensure_ascii=False)}")
                     print(f"    actual      : {r['actual_value']}  "
-                          f"interval_hit={r['interval_hit']}  "
+                          f"outcome_status={r['outcome_status']}  "
+                          f"outcome_valid={r['outcome_valid']}  "
+                          f"(basis={r['primary_actual_basis']})")
+                    if r["outcome_invalidating_codes"]:
+                        print(f"    NOT_SCORABLE: {', '.join(r['outcome_invalidating_codes'])}"
+                              f"  → 命中与 Brier 一律不出数")
+                    if r["revision_tracks"]:
+                        print(f"    revision    : {r['revision_comparison']}")
+                        for tk in ("as_reported_then", "latest_revised"):
+                            if tk in r["revision_tracks"]:
+                                t = r["revision_tracks"][tk]
+                                print(f"      {tk:16s} value={t['value']} "
+                                      f"interval_hit={t['interval_hit']} "
+                                      f"scored_event_hit={t['scored_event_hit']} "
+                                      f"brier={t['brier']}")
+                    print(f"    scored      : interval_hit={r['interval_hit']}  "
                           f"scored_event_hit={r['scored_event_hit']}  brier={r['brier']}")
                     print(f"    verdict     : {r['verdict']}")
+                    if r["outcome_flags"]:
+                        print(f"    outcome_flag: {', '.join(r['outcome_flags'])}")
                     print(f"    attribution : {', '.join(r['error_attribution']) or '(none)'}")
                     if r["block_codes"]:
                         print(f"    BLOCK       : {', '.join(sorted(set(r['block_codes'])))}")

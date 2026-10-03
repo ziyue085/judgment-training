@@ -48,7 +48,14 @@
           }
         ],
         "outcome": {
-          "actual": 760,
+          "actual_value": 760,
+          "actual_unit": "亿元",
+          "actual_caliber": "当年价/全市",
+          "actual_period": "2015",
+          "actual_period_end": "2015-12-31",
+          "source": "某市 2015 年国民经济和社会发展统计公报",
+          "published_at": "2016-03",
+          "revision_status": "initial",
           "note": "实际值落在用户预留的 45% 残余情景内。"
         }
       },

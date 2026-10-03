@@ -124,8 +124,12 @@ outcomes:
     interval_hit: null              # 可选：显式覆盖区间命中
     note: null
 
-# 兼容说明：v0.2.2 及更早的档案可能用裸数值 actual；复盘会回退读取它，
-# 但新记录一律写 actual_value（v0.2.3 修的就是这两者不一致导致的"假 OUTCOME_UNKNOWN"）。
+# 兼容说明：v0.2.2 及更早的档案可能用裸数值 actual；复盘会回退读取它以便查看与迁移，
+# 但 v0.2.4 起它被标记 LEGACY_UNVERIFIED（outcome_valid=false），
+# **不参与正式评分**。新记录一律写 actual_value。
+#
+# 结果合法性（valid / status / invalidating_codes）由 postmortem 主动计算，
+# 不存进本档案 —— 见 references/reveal-protocol.md 第六节。
 
 postmortem: null
 principle: null
@@ -212,7 +216,18 @@ postmortem:
       scored_event_hit: true   # true | false | null(=判不了) —— 与区间命中分开
       interval_hit: true       # true | false | null(=未知)
       outcome_hit: true        # 裁决用的那个：scored_event_hit 优先，否则 interval_hit
-      brier: 0.16              # 只在 scored_event_hit 可判定时才有值
+      brier: 0.16              # 只在 scored_event_hit 可判定且 outcome_valid 时才有值
+      # ---- v0.2.4 结果完整性 ----
+      outcome_valid: true      # false 时上面三个命中字段与 brier 一律 null
+      outcome_status: VALID    # VALID | INVALID | LEGACY_UNVERIFIED | UNKNOWN
+      outcome_invalidating_codes: []   # 让结果作废的 BLOCK（口径 / 期间 / 字段缺失）
+      outcome_warnings: []     # 不阻断评分、但需标注的码
+      outcome_flags: []        # 如 OUTCOME_REVISION_SENSITIVE / OUTCOME_LEGACY_UNVERIFIED
+      primary_actual_basis: latest_revised   # 主记录值取自哪一轨
+      revision_comparison: SAME              # SAME | DIFFERENT | UNAVAILABLE
+      revision_tracks:         # 两轨各算各的，两轨都报（v0.2.4）
+        as_reported_then: { value: 790, interval_hit: true,  scored_event_hit: true,  outcome_hit: true,  brier: 0.09 }
+        latest_revised:   { value: 812, interval_hit: true,  scored_event_hit: true,  outcome_hit: true,  brier: 0.09 }
       block_codes: []
       warn_codes: []
       error_attribution: []
@@ -222,11 +237,17 @@ postmortem:
     n_indicators: 3
     n_hit: 1                   # 按 outcome_hit 统计
     n_miss: 1
-    n_unknown: 1
+    n_unknown: 1               # 只数「结果未知」，不含「结果不可用」
     n_interval_hit: 1          # 区间视角另计（两者可合法不同）
     n_interval_miss: 1
+    n_valid_outcomes: 3        # v0.2.4 结果完整性分账
+    n_invalid_outcomes: 0
+    n_legacy_outcomes: 0
+    n_unscored_valid: 0        # 结果合法但暂时判不了命中的指标数
+    outcome_states: { valid: 3, invalid: 0, legacy_unverified: 0, unknown: 0 }
     overall: CASE_MIXED        # 见下表
-    outcome_status: PARTIAL    # REVEALED | PARTIAL | UNKNOWN
+    outcome_status: PARTIAL    # REVEALED | PARTIAL | PARTIAL_INVALID | INVALID
+                               #   | LEGACY_UNVERIFIED | UNKNOWN
   scores:                      # 每项 A/B/C/D + 必须写原因（逐指标或整轮）
     - item: 信息搜集完整性
       grade: null
@@ -280,6 +301,10 @@ postmortem:
 | `BLACK_SWAN` | 真正难以预见的事件 |
 | `LUCK` | 纯粹运气（好或坏） |
 
+> **`OUTCOME_REVISION_SENSITIVE` 不是错误来源**（v0.2.4）。它是结果侧的标记 ——
+> 表示"当时公布值与最新修订值给出不同结论"。**不得**归入 REASONING / MODEL / PROBABILITY：
+> 统计修订不是用户的推理错误。
+
 ### 裁决规则（对应 `judge_checks.py postmortem`）
 
 | 过程质量 | 结果 | 裁决 |
@@ -287,11 +312,17 @@ postmortem:
 | 无严重缺陷 | 命中 | `PROCESS_GOOD_OUTCOME_HIT` |
 | 无严重缺陷 | 未命中（含落入低概率情景） | `PROCESS_GOOD_OUTCOME_MISS` —— **不得因结果错判过程失败** |
 | 无严重缺陷 | **未知（未揭晓 / 未提供结果）** | `PROCESS_GOOD_OUTCOME_UNKNOWN` —— **未知 ≠ 未命中** |
+| 无严重缺陷 | **结果不可用**（口径 / 期间 / 字段不合法） | `PROCESS_GOOD_OUTCOME_INVALID` —— 过程合格，结果不能评分（v0.2.4） |
 | 有严重缺陷 | 命中 | `LUCKY_ACCURATE` —— **结果对不等于预测好** |
 | 有严重缺陷 | 未命中 | `PROCESS_DEFECTIVE_OUTCOME_MISS` |
 | 有严重缺陷 | **未知** | `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN` —— 缺陷足以定论"当时不该锁定"，无需知道结果 |
+| 有严重缺陷 | **结果不可用** | `PROCESS_DEFECTIVE_OUTCOME_INVALID` —— 缺陷已可定论，与结果可用性无关（v0.2.4） |
 
 其中"严重缺陷"指存在 `BLOCK` 级发现却仍被锁定，或事后归因中含 `REASONING` / `BASE_RATE_IGNORED` / `CALIBER` 三类之一。
+
+> **"结果不可用"是独立的一列**（v0.2.4），不与"未命中"合并。
+> 结果不合法时命中与 Brier 一律 `null`，但 `process_clean` 与归因照常独立计算 ——
+> **不许把 Reveal 的数据问题算到用户预测推理的账上。**
 
 ### 案例级汇总（`case_summary.overall`）
 

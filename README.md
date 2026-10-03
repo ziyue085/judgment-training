@@ -40,6 +40,7 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 | 区间优先于点 | 中心估计只是中枢，不是答案 |
 | 基准率约束叙事 | 个案故事必须与同类对象的常态分布对照 |
 | 过程与结果分开评价 | 结果正确 + 推理糟糕 ≠ 好预测<br>结果错误 + 推理合理 + 概率诚实 = 可能是好预测 |
+| 结果不可用就不评分 | 对答案的数值本身不合法（口径不符 / 期间不符 / 字段缺失）时，**不产生命中与 Brier**；过程质量照常独立评价 |
 | 信息时间防火墙 | 截点之后公开的信息不得进入预测 |
 
 ---
@@ -167,7 +168,10 @@ python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
 
 1. **信息防火墙** —— 截点之后的材料标记为不可用。发现污染时只说明"这条不能用"，**不解释它意味着什么**
 2. **揭晓授权** —— 必须用户显式授权；且揭晓范围**严格限定在预测期限内**（预测 2010→2013，就只说 2013，便于同一对象续练 2013→2016）
-3. **仓库纪律** —— 本仓库的文档与测试夹具**不含任何真实历史结局**，包括神木回归案例
+3. **仓库纪律** —— 本仓库的文档与测试夹具**不含任何真实历史结局**，包括神木回归案例。
+   唯一例外是 `tests/e2e/real-historical-full-run.md`：它是端到端演练记录，
+   明确标注 **`DO_NOT_USE_FOR_REAL_TRAINING`**，其对象**不得**作为正式训练题重复使用、
+   也不得进入正式选题池（见 `tests/e2e/e2e-report.md` 开头声明）
 
 ---
 
@@ -187,6 +191,52 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 并新增 4 条"概率未绑定命题"，因此变多。）
 
 详见 [`examples/shenmu-2010-regression-case.md`](examples/shenmu-2010-regression-case.md)。
+
+---
+
+## 本版修复（v0.2.4）
+
+一次**结果完整性补丁**。不重构、不扩功能。核心一句话：
+
+> **结果数据本身不合法时，绝不能继续给预测打分。**
+
+v0.2.3 让四步评的是同一件事；v0.2.4 让这套评分机制在"拿来对答案的那个数本身就不可靠"时**停手**。
+
+**1）无效揭晓仍会被复盘评分。** v0.2.3 的 `check_reveal()` 会在 `REVEAL` 阶段拦下
+口径不符、期间错位的结果，但 `postmortem()` 自己**不做验证**。只要有人绕过状态机
+直接调用复盘（CLI、测试、其他 agent、迁移旧档案），一份期间错位的结果照样会被算出一个分数。
+现在 `postmortem()` **主动重新验证**：`outcome_valid=false` 时命中与 Brier 一律 `null`，
+`actual_value` 只保留展示，**预测过程的质量照常独立评价**——
+不许把结果的问题算到用户推理的账上。
+
+```text
+outcome_status = INVALID     outcome_valid = false
+scored_event_hit = null      interval_hit = null      brier = null
+process_clean  = true        ← 过程仍被单独评价
+verdict        = PROCESS_GOOD_OUTCOME_INVALID
+```
+
+**2）裸 `actual` 绕过了完整性要求。** 旧档案里只有 `{"actual": 500}` 时，这个值会被
+当成正常结果参与正式评分。现在它只被读出来供查看与迁移，标记 `LEGACY_UNVERIFIED`，
+**不得**再参加正式统计。兼容层的含义是"旧数据还能打开"，不是"旧数据可以免责"。
+
+**3）修订双轨只写在文档里。** `reveal-protocol.md` 早就要求"当时公布值与最新修订值
+两个都报"，但复盘实际只取一个数。现在 `as_reported_then` 与 `latest_revised`
+**各算各的**，不一致时前台必须明说：
+
+> 「按当时公布的 790：命中；按修订后的 812：未命中。」
+
+而不是只给一个"最终结论"。这类分歧单独标记 `OUTCOME_REVISION_SENSITIVE`，
+**不归因成预测过程错误**。
+
+**4）"未知"与"已知但不可用"被分开。** 结果状态现在是四态：
+`VALID` / `INVALID` / `LEGACY_UNVERIFIED` / `UNKNOWN`。多指标可为 `PARTIAL_INVALID`。
+「没有结果」和「有结果但不能用来评分」是两件完全不同的事。
+
+本版还额外自动跑了两条端到端演练（合成案例 + 真实历史案例）与一次故障注入，
+理由很直接：**静态回归测不到的东西，只有在真跑一遍时才会冒出来。**
+它们发现了 3 个真实缺口（零指标案例被报为可准入、状态顺序不由代码强制、
+回复检查不校验陈述真实性），均如实记录，未擅自扩规则。
 
 ---
 
@@ -243,13 +293,13 @@ v0.2.2 让流程"跑得通"，v0.2.3 让四步真正评的是**同一个事件�
 
 ```text
 judgment-training/
-├─ SKILL.md                          主文件（精炼，4441 字符）
+├─ SKILL.md                          主文件（精炼，4875 字符）
 ├─ README.md
 ├─ CHANGELOG.md
 ├─ LICENSE
 ├─ .gitignore
 ├─ references/                       按需加载的方法论
-│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新 / 复盘六象限
+│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新 / 复盘八象限
 │  ├─ coaching-rules.md              职责边界 / 防火墙话术 / 越界场景 / 前台纪律
 │  ├─ probability-calibration.md     命题化 / 逻辑一致性 / 校准评分
 │  ├─ quantitative-forecasting.md    准入十查 / 分解族 / 隐含 CAGR / 基准率 / P0—P7
@@ -260,13 +310,14 @@ judgment-training/
 │  ├─ example-session.md             一轮完整对话（虚构对象）
 │  └─ shenmu-2010-regression-case.md 失败案例与拦截映射
 ├─ tests/
-│  ├─ test-cases.md                  23 个用例说明
+│  ├─ test-cases.md                  27 个用例说明
 │  ├─ conversation-cases.md          4 个对话级映射用例说明
 │  ├─ regression-checklist.md        自动 + 变异 + 人工回归清单
 │  ├─ run_regression.py              测试运行器（含 --conversation）
-│  ├─ mutation_check.py              变异测试（A—F 六项，可一键复现）
-│  ├─ cases/*.json                   23 个可执行夹具
-│  └─ conversation/*.json            4 个自然语言映射用例
+│  ├─ mutation_check.py              变异测试（A—I 九项，可一键复现）
+│  ├─ cases/*.json                   27 个可执行夹具
+│  ├─ conversation/*.json            4 个自然语言映射用例
+│  └─ e2e/                           端到端演练记录（合成 + 真实历史 + 汇总报告）
 ├─ scripts/
 │  └─ judge_checks.py                确定性规则层
 └─ docs/
@@ -278,7 +329,7 @@ judgment-training/
 ## 运行测试
 
 ```bash
-python tests/run_regression.py                 # 23 tests / 57 steps
+python tests/run_regression.py                 # 27 tests / 55 steps
 python tests/run_regression.py --verbose       # 打印每步实际发现
 python tests/run_regression.py --conversation  # 追加 4 个对话级映射用例
 python tests/mutation_check.py                 # 变异测试：故意破坏闸门，确认测试转红
@@ -287,14 +338,17 @@ python tests/mutation_check.py                 # 变异测试：故意破坏闸�
 期望输出：
 
 ```text
-tests: 23  steps: 57/57 passed  failed_tests: 0  (含对话映射 4 个)
+tests: 27  steps: 55/55 passed  failed_tests: 0
 REGRESSION_STATUS=PASS
 ```
 
-仅"全部通过"不构成证据。`tests/mutation_check.py` 会故意破坏六处闸门
+加 `--conversation` 时为 `27 tests / 63 steps`（含 4 个对话级映射用例）。
+
+仅"全部通过"不构成证据。`tests/mutation_check.py` 会故意破坏九处闸门
 （禁用量化检查 / 禁用防火墙 / 强制过程干净 / 禁用前视泄漏判定 /
-复盘退回只读旧字段 / Brier 退回区间命中），确认*预期的那几个*测试会转红。
-当前 **6/6 被捕获** —— 若某个变异后仍然全绿，说明那批测试没在真正检验它。
+复盘退回只读旧字段 / Brier 退回区间命中 / 忽略结果失效码 / 让裸 `actual` 继续评分 /
+只评修订值忽略当时公布值），确认*预期的那几个*测试会转红。
+当前 **9/9 被捕获** —— 若某个变异后仍然全绿，说明那批测试没在真正检验它。
 原理见 [`docs/design-notes.md`](docs/design-notes.md) 附录 A。
 
 ---
@@ -339,7 +393,15 @@ REGRESSION_STATUS=PASS
 - 来源层级判定基于关键词匹配，措辞差异可能漏判（故为 WARN 而非 BLOCK）
 - `scored_event` 每个指标只允许**一个** primary 命题；多个命题须拆成多个指标
   （本版不做 `scored_predictions[]`）
-- 结果记录若只有裸数值 `actual` 而无 `actual_value`，目标期校验无从进行
+- 结果记录若只有裸数值 `actual` 而无 `actual_value`，目标期校验无从进行；
+  v0.2.4 起这类记录被标记 `LEGACY_UNVERIFIED`，**只可查看、不可参与正式评分**
+- **状态顺序不由代码强制**：`judge_checks.py` 只做规则判定，不校验 `stage` 迁移，
+  「BLOCK 期间不得推进状态」靠教练自律
+- **`check_reply()` 不校验陈述真实性**：能拦抢答 / 剧透 / 问题过多 / 夸奖，
+  但发现不了"教练把实算结果说反了"
+- **零指标案例被报为 `ADMISSION_OK`**（流程缺口，不造成评分错误）
+- **自检自测不能替代盲测**：同一执行者在自己工作区里跑完锁定 → 揭晓时，
+  `FORECAST_LOCK_INTEGRITY=PASS` 只证明流程被遵守，不能证明执行者无后截点知情
 - 持久化依赖运行环境；档案默认写用户工作区
 
 完整列表见 [`docs/design-notes.md`](docs/design-notes.md) 第五节。

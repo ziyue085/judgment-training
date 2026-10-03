@@ -134,6 +134,9 @@
 不得只报其中一个。过程与结果分离的复盘原则（见 `methodology.md`）同样适用于此：
 **改口径、改修订版来"救回"一次未命中，是最严重的复盘作弊。**
 
+> v0.2.4 起，这两轨由 `postmortem()` **实际分别计算并输出**（见第六节末
+> 「修订两轨的落实」），不再只是文档里的要求。
+
 ### 无修订状态的旧案
 
 若揭晓时无法确定修订状态 → 写 `"unknown"`，并在记录中标注
@@ -181,7 +184,86 @@
 
 ---
 
-## 六、揭晓阶段的前台纪律
+## 六、结果不可用即不得评分（v0.2.4）
+
+结果记录写全了，不等于它可以用来打分。**只有当"对答案的那个数"本身合法时，
+命中与 Brier 才有意义。**
+
+`validate_outcome_for_scoring(case, indicator, outcome)` 返回四个维度：
+
+| 维度 | 取值 | 含义 |
+|---|---|---|
+| `valid` | `true` / `false` | 是否可参与正式评分 |
+| `status` | `VALID` / `INVALID` / `LEGACY_UNVERIFIED` / `UNKNOWN` | 结果完整性状态 |
+| `invalidating_codes` | 失效码列表 | 哪些 BLOCK 让结果作废 |
+| `warnings` | 软化码列表 | 不阻断评分、但需标注的项 |
+
+**这一层由 `postmortem()` 自己调用**，不依赖"状态机之前跑过 reveal 检查" ——
+CLI、测试、其他 agent、迁移旧档案都可能直接调用复盘。
+
+### 什么让结果失效
+
+`OUTCOME_INVALIDATING_CODES` —— **只把真正让结果无法使用的 BLOCK 升级为 INVALID**：
+
+| 失效码 | 触发条件 |
+|---|---|
+| `REVEAL_CALIBER_MISMATCH` | 结果口径 ≠ 基期口径（常住/户籍、当年价/不变价、全市/市辖区…） |
+| `REVEAL_TARGET_PERIOD_MISMATCH` | 结果期末 ≠ `forecast_to` |
+| `REVEAL_FIELD_MISSING` | 缺 `actual_value` / `actual_unit` / `actual_caliber` / `actual_period(_end)` / `source` 中任一 |
+
+以下**不**使结果失效，只记 WARN：缺 `published_at`、缺 `revision_status`、
+来源层级偏低、部分辅助字段缺失 ——
+**不要把 Reveal 的所有 WARN 都变成 INVALID**，那会让复盘寸步难行。
+
+### 失效后怎么表达
+
+```text
+actual_value  = 800       ← 保留展示（用户要能看到这个数）
+outcome_valid = false
+outcome_status = INVALID
+outcome_invalidating_codes = [REVEAL_TARGET_PERIOD_MISMATCH]
+interval_hit = null   scored_event_hit = null   brier = null
+```
+
+**命中与 Brier 一律 `null`，不是 0。** 这是硬要求：
+
+- `brier = 0` 会被读成"完美校准"，是**最误导**的结果；
+- `hit = false` 会被读成"未命中"，同样是**无中生有**；
+- `hit = null` 才诚实表达"这次没法评分"。
+
+并且：**结果无效 ≠ 预测过程无效。** 复盘仍要独立评价用户当时的推理 ——
+裁决用 `PROCESS_GOOD_OUTCOME_INVALID` / `PROCESS_DEFECTIVE_OUTCOME_INVALID`，
+`process_clean` 不受结果问题影响。**把 Reveal 的数据问题算到用户预测推理的账上，
+和放过一个坏结果一样严重。**
+
+### 旧档案的裸 `actual`
+
+旧档案可能只写 `{"actual": 500}`。它**可以被读出来查看与迁移**，
+但 `outcome_status = LEGACY_UNVERIFIED`、`outcome_valid = false`，
+**不得绕过完整性要求参加正式统计**。
+
+> 兼容层的含义是「旧数据还能打开」，**不是**「旧数据可以免责」。
+> 这是 v0.2.4 明确纠正的一处语义偷换。
+
+### 修订两轨的落实（v0.2.4）
+
+第四节要求"两个数都算"。v0.2.4 把它变成实际输出：
+
+| 字段 | 含义 |
+|---|---|
+| `revision_tracks.as_reported_then` | 用当时公布值算出的 `{value, interval_hit, scored_event_hit, outcome_hit, brier}` |
+| `revision_tracks.latest_revised` | 用最新修订值算出的同一组 |
+| `revision_comparison` | `SAME` / `DIFFERENT` / `UNAVAILABLE` |
+| `primary_actual_basis` | 主记录值取自哪一轨（优先 `latest_revised`，其次 `as_reported_then`，最后退回 `actual_value`） |
+
+两轨结论不同时标记 `OUTCOME_REVISION_SENSITIVE`，
+**前台必须把两轨都说出来**，不得只报一个"最终 verdict"。
+该标记**不归入** REASONING / MODEL / PROBABILITY ——
+修订造成的结论变化不是用户的判断错误。
+
+---
+
+## 七、揭晓阶段的前台纪律
 
 `check_reveal()` 会返回一长串字段级发现，但**前台不要念清单**。
 
@@ -194,7 +276,7 @@
 
 ---
 
-## 七、常见错误对照
+## 八、常见错误对照
 
 | 错误做法 | 后果 | 正确做法 |
 |---|---|---|
@@ -206,3 +288,7 @@
 | 只留当时公布值 | 忽略后续修订带来的结论变化 | 两个都报 |
 | 揭晓时顺带剧透下一段 | 破坏后续训练 | 严格止于预测期限 |
 | 揭晓即点评对错 | 过程与结果混为一谈 | 揭晓只记录，复盘再评判 |
+| 无效结果照常打分（v0.2.4） | 命中与 Brier 建立在不合法的数上 | 命中与 Brier 一律 `null`，只保留 `actual_value` 展示 |
+| 用裸 `actual` 当正式结果（v0.2.4） | 绕过口径 / 期间校验 | 标记 `LEGACY_UNVERIFIED`，不参与评分 |
+| 把修订差异写成用户推理错误（v0.2.4） | 冤枉用户的判断 | 标记 `OUTCOME_REVISION_SENSITIVE`，不归入 REASONING / MODEL / PROBABILITY |
+| 结果无效就顺带否定过程（v0.2.4） | 两笔账混在一起 | 过程照常独立评价（`PROCESS_*_OUTCOME_INVALID`） |

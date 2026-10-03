@@ -20,8 +20,28 @@
           }
         ],
         "outcomes": {
-          "地区生产总值": {"actual": 500, "note": "2013 年统计公报数值落在区间内"},
-          "地方财政收入": {"actual": 150, "note": "煤价回落后收入低于区间下限"}
+          "地区生产总值": {
+            "actual_value": 500,
+            "actual_unit": "亿元",
+            "actual_caliber": "全县、当年价",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "神木县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-03",
+            "revision_status": "initial",
+            "note": "2013 年统计公报数值落在区间内"
+          },
+          "地方财政收入": {
+            "actual_value": 150,
+            "actual_unit": "亿元",
+            "actual_caliber": "全县、当年价",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "神木县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-03",
+            "revision_status": "initial",
+            "note": "煤价回落后收入低于区间下限"
+          }
         },
         "indicators": [
           {

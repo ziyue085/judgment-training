@@ -1,0 +1,115 @@
+{
+  "id": "test-27-revision-dual-evaluation",
+  "title": "Test 27 · 统计修订双轨评价（当时公布值 vs 最新修订值）",
+  "scenario": "Reveal Protocol 第四节要求两个数都算、都报，不得只留对预测有利的那个。本例命题为「2013 年地方财政收入 <= 800 亿元」，概率 0.7，预测区间 [700,800]。当时公布 790（命中），后来修订为 812（未命中）——两轨结论相反。必须同时输出两轨的 interval_hit / scored_event_hit / brier，并标记 revision_comparison=DIFFERENT 与 OUTCOME_REVISION_SENSITIVE（修订属结果测量问题，不是用户推理错误）。",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "case_id": "t27-revision-dual",
+        "object": "某县",
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "difficulty": 1,
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "outcomes": {
+          "地方财政收入": {
+            "actual_value": 812,
+            "actual_unit": "亿元",
+            "actual_caliber": "全县、当年价",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "某县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-03",
+            "revision_status": "revised",
+            "as_reported_then": 790,
+            "latest_revised": 812
+          }
+        },
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 600,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 380},
+              {"period": "2007", "value": 460},
+              {"period": "2008", "value": 530},
+              {"period": "2009", "value": 600}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 700,
+            "forecast_high": 800,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 <= 800 亿元) = 70%",
+            "scored_event": {"type": "threshold", "op": "<=", "value": 800},
+            "reasoning": "按煤价与工业增加值弹性外推",
+            "failure_conditions": "煤价大幅回落",
+            "counterargument": "非煤产业补位",
+            "missing_info": "非煤产业税收占比"
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_MISS",
+        "outcome_valid": true,
+        "outcome_status": "REVEALED",
+        "n_hit": 0,
+        "n_miss": 1,
+        "n_unknown": 0,
+        "indicator_results": [
+          {
+            "indicator": "地方财政收入",
+            "process_clean": true,
+            "outcome_valid": true,
+            "outcome_status": "VALID",
+            "revision_comparison": "DIFFERENT",
+            "primary_actual_basis": "latest_revised",
+            "actual_value": 812,
+            "interval_hit": false,
+            "scored_event_hit": false,
+            "outcome_hit": false,
+            "brier": 0.49,
+            "outcome_flags": ["OUTCOME_REVISION_SENSITIVE"],
+            "revision_tracks": {
+              "as_reported_then": {
+                "value": 790,
+                "interval_hit": true,
+                "scored_event_hit": true,
+                "outcome_hit": true,
+                "brier": 0.09
+              },
+              "latest_revised": {
+                "value": 812,
+                "interval_hit": false,
+                "scored_event_hit": false,
+                "outcome_hit": false,
+                "brier": 0.49
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

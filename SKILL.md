@@ -1,6 +1,6 @@
 ---
 name: judgment-training
-version: 0.2.3
+version: 0.2.4
 description: 判断力训练 —— 历史盲测预测教练（状态机型 / 长期档案型）。用户站在某个历史截点，仅使用该截点当天及之前可获得的信息，对一座城市或一家企业的未来做定量 + 定性预测，再由真实历史结果检验判断质量。当用户说"判断力训练""历史盲测""给我一个历史时期让我分析""我要预测某个城市/企业""继续上一轮训练""揭晓""复盘"时使用。本技能只负责：选题、设截点、控信息边界、检查预测准入、检查数学与概率逻辑、提问、记录档案、授权揭晓、复盘归因。绝不替用户做研究，绝不给研究关键词，绝不提供答案型资料，绝不在用户锁定预测前泄露任何结局。
 agent_created: true
 ---
@@ -79,6 +79,15 @@ python scripts/judge_checks.py postmortem tests/cases/<case>.json
 预测、概率、揭晓、复盘四步必须落在**同一个事件**上（概率绑定到 `scored_event`，Brier 只评它）；
 揭晓的结果期末必须等于 `forecast_to`（拿别的年份结算，命中判定整份作废，`REVEAL_TARGET_PERIOD_MISMATCH`）；
 正在使用的材料与基期值都必须有可核验的公开时间（缺失即 `BLOCK`，不是 WARN）。
+
+**结果不可用即不得评分**（v0.2.4）：揭晓数据本身不合法（口径不符 / 期间不符 / 必填字段缺失）时，
+`POSTMORTEM` **必须自己重新验证一次**，不得依赖"之前跑过 reveal 检查"。
+不合法时 `outcome_valid=false`、`outcome_status=INVALID`，命中与 Brier 一律 `null`，
+`actual_value` 只留作展示；**预测过程的质量照常独立评价**
+（裁决用 `PROCESS_GOOD/DEFECTIVE_OUTCOME_INVALID`）—— 不许把结果问题算到用户推理的账上。
+旧档案的裸 `actual` 只能读出来查看与迁移，标记 `LEGACY_UNVERIFIED`，
+**不得绕过完整性要求参加正式统计**。统计值有修订时，`as_reported_then` 与
+`latest_revised` **两轨各算各的，两轨都报**，不得只留对预测有利的那一个。
 
 ## 六、Reference 加载表
 

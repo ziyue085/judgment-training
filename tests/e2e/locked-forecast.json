@@ -1,0 +1,125 @@
+{
+  "sha256": "b01f29bdce1863f77066f4455881c59d09310a6157f219ad9f2cd6149f44d665",
+  "case": {
+    "case_id": "e2e-b-real-2012",
+    "object": "山东省淄博市",
+    "object_type": "city",
+    "historical_cutoff": "2012-12-31",
+    "forecast_to": "2015-12-31",
+    "difficulty": 1,
+    "base_rate_provided": true,
+    "sources": [
+      {
+        "name": "《2011年淄博市国民经济和社会发展统计公报》（淄博市统计局，2012-02-16）",
+        "published_at": "2012-02-16",
+        "data_period_start": "2011-01-01",
+        "data_period_end": "2011-12-31",
+        "revision_status": "final"
+      },
+      {
+        "name": "《淄博市2012年政府工作报告》（2012-02-26）",
+        "published_at": "2012-02-26",
+        "data_period_start": "2007-01-01",
+        "data_period_end": "2011-12-31",
+        "revision_status": "final"
+      }
+    ],
+    "indicators": [
+      {
+        "name": "地区生产总值",
+        "kind": "flow",
+        "base_value": 3280.23,
+        "base_unit": "亿元",
+        "base_caliber": "全市、当年价",
+        "base_period": "2011",
+        "base_published_at": "2012-02-16",
+        "history": [
+          {
+            "period": "2007",
+            "value": 1945.0
+          },
+          {
+            "period": "2008",
+            "value": 2316.8
+          },
+          {
+            "period": "2009",
+            "value": 2473.1
+          },
+          {
+            "period": "2010",
+            "value": 2866.8
+          },
+          {
+            "period": "2011",
+            "value": 3280.23
+          }
+        ],
+        "history_basis": "trend",
+        "drivers": [
+          "固定资产投资",
+          "工业增加值",
+          "化工与建材价格"
+        ],
+        "constraints": [
+          "能耗与环保约束",
+          "产业结构偏重"
+        ],
+        "stock_flow_relevant": false,
+        "quantity_price_relevant": true,
+        "quantity_price_split": true,
+        "qualitative_direction": "up",
+        "forecast_low": 3700,
+        "forecast_high": 4100,
+        "probability": 0.6,
+        "proposition": "P(2015 年地区生产总值 > 3900 亿元) = 60%",
+        "scored_event": {
+          "type": "threshold",
+          "op": ">",
+          "value": 3900
+        },
+        "reasoning": "2011 年 GDP 3280.23 亿元，历史三年增速 12%—16%，考虑重化工业占比高、增速换挡，取 4%—8% 外推。",
+        "failure_conditions": "若化工与建材价格年均跌幅超过 10%，区间下限失守。",
+        "counterargument": "老工业城市转型期增速可能低于全省平均。",
+        "missing_info": "2012 年上半年分行业增加值数据。"
+      },
+      {
+        "name": "人均地区生产总值",
+        "kind": "quantity",
+        "base_value": 72380,
+        "base_unit": "元/人",
+        "base_caliber": "全市、当年价、常住人口分母",
+        "base_period": "2011",
+        "base_published_at": "2012-02-16",
+        "history": [],
+        "history_basis": "alternative",
+        "alternative_mechanism": "以 2011 年人均 GDP 为基数，用全国人均 GDP 增速与本市 GDP 增速 的相对弹性外推，并用常住人口变动作分母修正；历史序列不足，故不采用本市的趋势外推。",
+        "drivers": [
+          "GDP 增速",
+          "常住人口变动"
+        ],
+        "constraints": [
+          "人口净流入/流出",
+          "统计口径调整"
+        ],
+        "stock_flow_relevant": false,
+        "quantity_price_relevant": false,
+        "qualitative_direction": "up",
+        "forecast_low": 78000,
+        "forecast_high": 86000,
+        "probability": 0.6,
+        "proposition": "P(2015 年人均地区生产总值 ∈ [78000,86000] 元) = 60%",
+        "scored_event": {
+          "type": "interval",
+          "low": 78000,
+          "high": 86000
+        },
+        "reasoning": "人均口径受分母影响；按 GDP 弹性与人口小幅净流入外推。",
+        "failure_conditions": "若常住人口净流出，人均值会被动抬升。",
+        "counterargument": "人口抽样口径调整可能造成断点。",
+        "missing_info": "2012 年常住人口抽样结果。"
+      }
+    ],
+    "DO_NOT_USE_FOR_REAL_TRAINING": true
+  }
+}

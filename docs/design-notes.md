@@ -25,7 +25,7 @@
 
 **收益**：
 - 规则可回归、可变异测试（见附录）
-- 提示词可以保持精简（`SKILL.md` 仅 4130 字符）
+- 提示词可以保持精简（`SKILL.md` 约 4.9k 字符；v0.2.4 实测 4875）
 - 失败是**显式**的（BLOCK/WARN 分级），而不是"模型这次没想起来"
 
 **代价**：
@@ -39,7 +39,7 @@
 ```text
 SKILL.md                              精炼主文件：角色 / 铁律 / 状态机 / 加载表
 references/                           按需加载的方法论，避免主文件膨胀
-  methodology.md                      训练目标、难度分级、提问设计、动态更新、复盘六象限
+  methodology.md                      训练目标、难度分级、提问设计、动态更新、复盘八象限
   coaching-rules.md                   职责边界、防火墙话术、越界场景守则、前台纪律
   probability-calibration.md          命题化、逻辑一致性、校准评分
   quantitative-forecasting.md         准入十查、分解族、隐含 CAGR、基准率、P0—P7
@@ -49,7 +49,8 @@ references/                           按需加载的方法论，避免主文件
 examples/                             给人看的（含失败案例）
 tests/                                给机器跑的（夹具 + 运行器 + 变异 + 清单）
   conversation/                       对话级映射用例（v0.2.2）
-  mutation_check.py                   变异测试 A—F（v0.2.3 起随仓库分发）
+  e2e/                                端到端演练记录（v0.2.4：合成 + 真实历史 + 汇总）
+  mutation_check.py                   变异测试 A—I（v0.2.3 起随仓库分发，v0.2.4 扩到 9 项）
 scripts/judge_checks.py               确定性规则层
 docs/design-notes.md                  本文件
 ```
@@ -86,16 +87,18 @@ v0.2.2 把这个纪律**做成了确定实现**，而不是靠模型自觉：
 > 为什么需要显式优先级：此前按 severity 排序，神木案例会平铺 45 条 BLOCK，
 > 用户无法判断该先补哪一个。优先级让"一次推进一个瓶颈"变得可执行。
 
-### 4.4 复盘六象限（v0.2.2 由四象限扩展）
+### 4.4 复盘八象限（v0.2.2 四象限 → 六象限，v0.2.4 → 八象限）
 
 | 过程 | 结果 | 裁决 |
 |---|---|---|
 | 干净 | 命中 | `PROCESS_GOOD_OUTCOME_HIT` |
 | 干净 | 未命中 | `PROCESS_GOOD_OUTCOME_MISS` |
 | 干净 | **未知** | `PROCESS_GOOD_OUTCOME_UNKNOWN` |
+| 干净 | **结果不可用**（v0.2.4） | `PROCESS_GOOD_OUTCOME_INVALID` |
 | 有缺陷 | 命中 | `LUCKY_ACCURATE` |
 | 有缺陷 | 未命中 | `PROCESS_DEFECTIVE_OUTCOME_MISS` |
 | 有缺陷 | **未知** | `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN` |
+| 有缺陷 | **结果不可用**（v0.2.4） | `PROCESS_DEFECTIVE_OUTCOME_INVALID` |
 
 "过程干净"的判定依据是**是否存在 BLOCK 级缺陷**，而非结果。
 错误归因覆盖 BLOCK 与 WARN 两级（否则"忽略基准率"这类 WARN 会漏掉归因）。
@@ -104,6 +107,11 @@ v0.2.2 把这个纪律**做成了确定实现**，而不是靠模型自觉：
 把"还没揭晓 / 没提供结果"和"未命中"混为一谈，导致**未揭晓的案例被误判成 MISS**。
 现在 `hit=None` 有独立分支，并区分 `PROCESS_GOOD_OUTCOME_UNKNOWN` 与
 `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN`（后者：缺陷已足以定论"当时不该锁定"，无需知道结果）。
+
+**"结果不可用"这一列是 v0.2.4 新增的。** 它与"未知"是两件事：
+未知 = 根本没有结果；不可用 = **有结果，但这个结果不能用来评分**。
+把后者并入前者会丢掉"数据本身有问题"这一信息；并入"未命中"更糟 ——
+那等于给用户凭空记一次失败。详见 4.12。
 
 ### 4.5 反向对照用例（test-12）
 
@@ -246,6 +254,61 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
 两端都是完整日期时要求同日；只写年份（如「2013」）退化为同年比较，旧档案仍兼容。
 由 `test-22` 三个 step 覆盖。
 
+### 4.12 结果完整性层（v0.2.4 核心修复）
+
+**问题**：`check_reveal()` 在 `REVEAL` 阶段会拦下口径不符 / 期间错位的结果，
+但 `postmortem()` **自己不验证结果**。于是只要有人绕过状态机直接调用复盘
+（CLI 单跑、测试、其他 agent、迁移旧档案），一份期间错位的结果照样会被算出一个分数。
+这是一个**接口漏洞**：把关只设在一扇门上，另一扇门敞着。
+
+**做法**：抽出 `validate_outcome_for_scoring(case, indicator, outcome)`，
+让 `postmortem()` **自己**在评分前调用它：
+
+```text
+{valid, status, invalidating_codes, warnings, legacy, primary_basis, display_value}
+```
+
+设计上有三条克制：
+
+1. **不是所有 WARN 都变 INVALID。** `OUTCOME_INVALIDATING_CODES` 只收
+   `REVEAL_CALIBER_MISMATCH` / `REVEAL_TARGET_PERIOD_MISMATCH` / `REVEAL_FIELD_MISSING`。
+   缺 `published_at`、缺 `revision_status`、来源层级偏低仍按 WARN 处理 ——
+   否则任何一处辅助字段不全就作废，正常训练根本走不动。
+2. **结果侧发现与过程侧发现分账。** `_reveal_findings_for_record()` 供
+   `check_reveal()` 与 `validate_outcome_for_scoring()` 共用；
+   `postmortem()` 再用 `OUTCOME_SIDE_CODES` 把结果侧发现从过程归因里摘出去，
+   于是 `process_clean` 不再被结果问题拖下水。
+3. **失效后命中与 Brier 一律 `None`，不是 0。** `brier = 0` 会被读成"完美校准"，
+   是比不给分更坏的结果。
+
+**四态**：`VALID` / `INVALID` / `LEGACY_UNVERIFIED` / `UNKNOWN`。
+多指标整体可为 `PARTIAL_INVALID`。**"未知"与"已知但不能用于评分"严格分开。**
+
+**legacy 语义**：裸 `actual` 只是"还能打开"，标记 `LEGACY_UNVERIFIED`，
+`outcome_valid=false`，不参与正式统计。`test-26` 覆盖。
+变异 **G**（忽略失效码）打 red test-24，**H**（裸 `actual` 继续评分）打 red test-26。
+
+### 4.13 修订双轨评分（v0.2.4）
+
+`reveal-protocol.md` 从 v0.2.2 起就写着"当时公布值与最新修订值两个都算、都要报"，
+但 `postmortem()` 实际只取一个数。**规则写在文档里、没写进代码，等于没写。**
+
+**做法**：`_revision_track(value, scored_event, ind, prob)` 对单个值算出
+`{value, interval_hit, scored_event_hit, outcome_hit, brier}`；
+`postmortem()` 对 `as_reported_then` 与 `latest_revised` 各调一次，输出 `revision_tracks`。
+
+| 字段 | 含义 |
+|---|---|
+| `revision_comparison` | `SAME` / `DIFFERENT` / `UNAVAILABLE`（用 `_track_signature()` 比较） |
+| `primary_actual_basis` | 主记录值取自哪一轨（优先 `latest_revised`） |
+| `OUTCOME_REVISION_SENSITIVE` | 两轨结论不同时的标记 |
+
+两轨不同时**前台必须明说**「按当时公布值命中；按修订值未命中」，
+不得只给一个最终 verdict。该标记**不归入** REASONING / MODEL / PROBABILITY ——
+修订造成的结论变化不是用户的推理错误。
+由 `test-27` 覆盖（as_reported_then 790 → brier 0.09；latest_revised 812 → brier 0.49；
+`revision_comparison = DIFFERENT`）。变异 **I**（只评 `latest_revised`）打 red test-27。
+
 ---
 
 ## 五、已知限制（KNOWN LIMITATIONS）
@@ -269,11 +332,21 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
 11. **`scored_event` 每指标只允许一个 primary 命题**（v0.2.3）。用户一次押了两件事时，
     须拆成两个指标。本版不做 `scored_predictions[]`（见 4.10 第 3 条的理由）。
 12. **旧档案的裸 `actual` 无法做目标期校验**（v0.2.3）。只有数值、没有 `actual_value` /
-    `actual_period_end` 的历史记录，期间一致性无从核对，只能报 `REVEAL_FIELD_MISSING` 并
-    在档案中标注"该次命中判定未做期间校验"。
+    `actual_period_end` 的历史记录，期间一致性无从核对。
+    v0.2.4 起这类记录被标记 `LEGACY_UNVERIFIED`（`outcome_valid=false`），
+    **只可查看与迁移，不参与正式评分** —— 与其"勉强算一个不可靠的分"，不如诚实地说算不了。
 13. **`outcome_hit` 在缺 `scored_event` 时会退回区间命中**（v0.2.3）。这是一种降级：
     此时裁决评的是区间而非命题。该状态本身必然伴随 `PROB_SCORED_EVENT_MISSING` (BLOCK)，
     即"已经被拦住的档案"，因此降级结果只用于复盘存档，不用于放行。
+14. **状态顺序不由代码强制**（v0.2.4 E2E 发现）。`judge_checks.py` 只做规则判定，
+    不校验 `stage` 迁移。「BLOCK 期间不得推进状态」目前只靠教练自律，代码不提供保障。
+15. **`check_reply()` 不校验陈述真实性**（v0.2.4 E2E 发现）。它只能拦抢答 / 剧透 /
+    问题过多 / 夸奖 / 分析师口吻，**不能发现"教练把实算结果说反了"**。
+16. **零指标案例被报为 `ADMISSION_OK`**（v0.2.4 E2E 发现）。没有任何指标时
+    不该宣告准入通过。它不造成评分错误，属流程缺口。
+17. **自检自测不能替代盲测**（v0.2.4 E2E 发现）。同一执行者在自己工作区里完成
+    "写死允许清单 → 锁定 → 揭晓"时，`FORECAST_LOCK_INTEGRITY=PASS` 只证明流程被遵守，
+    **不能**证明执行者对后截点信息不知情。有效盲测需在无后截点检索史的独立会话中进行。
 
 ---
 
@@ -285,9 +358,9 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
 python tests/run_regression.py --conversation
 ```
 
-期望：`23 tests`、`57/57 steps`（含 4 个对话级映射用例）、`REGRESSION_STATUS=PASS`。
+期望：`27 tests`、`63/63 steps`（含 4 个对话级映射用例）、`REGRESSION_STATUS=PASS`。
 
-> 只跑 `python tests/run_regression.py`（不加 `--conversation`）时为 23 tests / 49 steps，
+> 只跑 `python tests/run_regression.py`（不加 `--conversation`）时为 27 tests / 55 steps，
 > 因为对话用例仅在显式请求时加载。
 
 变异测试另跑：`python tests/mutation_check.py`（见附录 A）。
@@ -299,10 +372,13 @@ python - <<'EOF'
 import re, pathlib
 root = pathlib.Path(".")
 bad = []
+pat = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 for md in root.rglob("*.md"):
-    for m in re.finditer(r"\[[^\]]+\]\(([^)#]+?)", md.read_text(encoding="utf-8")):
-        t = m.group(1).strip()
-        if t.startswith(("http://", "https://", "mailto:")):
+    if ".git" in md.parts:
+        continue
+    for m in pat.finditer(md.read_text(encoding="utf-8")):
+        t = m.group(1).strip().split("#")[0]
+        if not t or t.startswith(("http://", "https://", "mailto:")):
             continue
         if not (md.parent / t).exists():
             bad.append(f"{md}: {t}")
@@ -310,6 +386,9 @@ print("BROKEN_LINKS=", len(bad))
 [print(" ", b) for b in bad]
 EOF
 ```
+
+> 正则必须**带收尾的 `\)`**。少了它，`[Keep a Changelog](https://…)` 这类链接会因为
+> 非贪婪分组只捕获到第一个字符（`h`），产出 8 条假断链。
 
 ### 6.3 主文件体量检查
 
@@ -349,19 +428,24 @@ python tests/mutation_check.py          # 从项目根目录运行
 **必须在临时副本上执行** —— 脚本自身已做到（复制到 `%TEMP%` 后改副本），
 不会触碰仓库文件。
 
-当前 6 项：
+当前 **9 项**（v0.2.4 由 6 项扩展）。"实测转红"为 2026-10-03 实跑结果：
 
-| # | 变异 | 破坏点 | 期望转红 |
-|---|---|---|---|
-| A | `disable-quant-check` | `check_quant()` 直接返回空 | test-02、test-11 |
-| B | `disable-firewall` | `FIREWALL_CONTAMINATION` 降级为 INFO | test-07 |
-| C | `force-process-clean` | `clean = (not blocks) and (not case_fatal)` → `clean = True` | test-08、test-11 |
-| D | `disable-lookahead-firewall` | 关掉"所属期在截点内、但发布时间在截点后"这一分支 | test-16 |
-| E | `postmortem-legacy-field-only` | 复盘退回只读 `oc["actual"]`（v0.2.3 §1） | test-19、test-23 |
-| F | `brier-from-interval-hit` | Brier 退回用 `interval_hit`（v0.2.3 §3/§7） | test-20、test-23 |
+| # | 变异 | 破坏点 | 期望转红 | 实测转红 |
+|---|---|---|---|---|
+| A | `disable-quant-check` | `check_quant()` 直接返回空 | test-02、test-11 | +test-13、conv-02 |
+| B | `disable-firewall` | `FIREWALL_CONTAMINATION` 降级为 INFO | test-07 | +test-16 |
+| C | `force-process-clean` | `clean = (not blocks) and (not case_fatal)` → `clean = True` | test-08、test-11 | 同期望 |
+| D | `disable-lookahead-firewall` | 关掉"所属期在截点内、但发布时间在截点后"这一分支 | test-16 | 同期望 |
+| E | `postmortem-legacy-field-only` | 复盘退回只读 `oc["actual"]`（v0.2.3 §1） | test-19、test-23 | +test-08/09/15/20/27 |
+| F | `brier-from-interval-hit` | Brier 退回用 `interval_hit`（v0.2.3 §3/§7） | test-20 | +test-23 |
+| G | `ignore-invalidating-codes` | 失效码集合恒为空（v0.2.4 §23） | test-24 | +test-25 |
+| H | `legacy-actual-scores` | 让裸 `actual` 继续走后一条正式评分路径（v0.2.4 §23） | test-26 | 同期望 |
+| I | `drop-as-reported-then` | 只评 `latest_revised`，忽略 `as_reported_then`（v0.2.4 §23） | test-27 | 同期望 |
 
-实测 **6/6 CAUGHT**。E / F 是新用例的"非空转证明"：
-它们分别对应本次修的两个 correctness bug，因此**必须**能把这批新测试打红。
+实测 **9/9 CAUGHT**。E / F 与 G / H / I 都是"非空转证明"：
+它们各自对应一次修掉的 correctness bug，因此**必须**能把对应测试打红。
+判定标准是"期望清单中的每一个都转红"（多余转红不算问题，只说明覆盖面更广）；
+H 与 I 精确只打中各自目标的测试，说明新用例守的是互不重叠的防线。
 
 ---
 

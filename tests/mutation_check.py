@@ -54,19 +54,42 @@ MUTATIONS = {
     ),
     # v0.2.3 §24 E：复盘退回只读旧字段 actual → 揭晓写进去的 actual_value 读不到
     "E-postmortem-legacy-field-only": (
-        '        actual = oc.get("actual_value")\n'
-        '        if actual is None:\n'
-        '            actual = oc.get("actual")\n',
-        '        actual = oc.get("actual")\n',
+        '            primary_value = oc.get(basis) if basis else None\n'
+        '            if primary_value is None:\n'
+        '                primary_value = oc.get("actual_value")\n'
+        '            if primary_value is None:\n'
+        '                primary_value = oc.get("actual")\n',
+        '            primary_value = oc.get("actual")\n',
         ["test-19", "test-23"],
     ),
     # v0.2.3 §24 F：Brier 退回用区间命中 → 评的就不是概率真正押的那个命题
     "F-brier-from-interval-hit": (
-        'brier = (prob - (1.0 if se_hit else 0.0)) ** 2 \\\n'
-        '            if (prob is not None and se_hit is not None) else None',
-        'brier = (prob - (1.0 if hit else 0.0)) ** 2 \\\n'
-        '            if (prob is not None and hit is not None) else None',
+        '    brier = (prob - (1.0 if se_hit else 0.0)) ** 2 \\\n'
+        '        if (prob is not None and se_hit is not None) else None',
+        '    brier = (prob - (1.0 if hit else 0.0)) ** 2 \\\n'
+        '        if (prob is not None and hit is not None) else None',
         ["test-20"],
+    ),
+    # v0.2.4 §23 G：让复盘忽略「结果期与预测目标期不符」，继续按值评分
+    "G-ignore-invalidating-codes": (
+        '    inval = sorted({f.code for f in findings\n'
+        '                    if f.severity == BLOCK and f.code in OUTCOME_INVALIDATING_CODES})',
+        '    inval = []  # MUTATED',
+        ["test-24"],
+    ),
+    # v0.2.4 §23 H：让裸 legacy actual 继续正式评分
+    "H-legacy-actual-scores": (
+        '    if not formal_keys and outcome.get("actual") is not None:',
+        '    if False:  # MUTATED',
+        ["test-26"],
+    ),
+    # v0.2.4 §23 I：只评价 latest_revised，忽略 as_reported_then
+    "I-drop-as-reported-then": (
+        '            if oc.get("as_reported_then") is not None:\n'
+        '                tracks["as_reported_then"] = _revision_track(\n'
+        '                    oc["as_reported_then"], ev, ind, prob)\n',
+        '            pass  # MUTATED: 忽略当时公布值\n',
+        ["test-27"],
     ),
 }
 

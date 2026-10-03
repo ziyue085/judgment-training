@@ -4,6 +4,101 @@
 
 ---
 
+## [0.2.4] — 2026-10-03
+
+结果完整性补丁（outcome-integrity patch）。**不重构、不扩功能、不继续增加方法论。**
+
+核心命题一句话：
+
+> **结果数据本身不合法时，绝不能继续给预测打分。**
+
+v0.2.3 让预测、概率、揭晓、复盘四步落在同一个事件上；v0.2.4 让这套评分机制
+在"对答案的那一个数本身就不可靠"时**停手**，而不是照旧算出一个漂亮（或难看）的分数。
+
+### Fixed
+
+- **无效揭晓仍会被 Postmortem 评分**：v0.2.3 里 `check_reveal()` 会在 `REVEAL` 阶段
+  报出 `REVEAL_CALIBER_MISMATCH` / `REVEAL_TARGET_PERIOD_MISMATCH` 等 BLOCK，
+  但 `postmortem()` **自己不做结果合法性验证** —— 只要有人绕过状态机直接调用
+  `postmortem`（CLI / 测试 / 其他 agent / 迁移旧档案），一份期间错位或口径不符的
+  结果照样会被拿去算命中与 Brier。现在 `postmortem()` **主动重新验证**，
+  `valid=false` 时命中与 Brier 一律 `null`，`actual_value` 只保留展示
+- **裸 `actual` 绕过 Reveal 完整性要求**：旧档案里只有 `{"actual": 500}` 时，
+  该值会被当成正常结果参与正式评分。现在它只被读出来供查看 / 迁移，
+  标记 `outcome_status=LEGACY_UNVERIFIED`、`outcome_valid=false`，一律不评分
+- **修订双轨只写在文档里**：`reveal-protocol.md` 早已要求"当时公布值与最新修订值
+  两个都报"，但 `postmortem()` 实际只取一个数算命中。现在两轨分别计算、
+  分别输出，不一致时显式标记 `OUTCOME_REVISION_SENSITIVE`
+- **结果侧问题被算进过程归因**：揭晓侧的发现（`OUTCOME_SIDE_CODES`）此前会混入
+  过程质量判定。现在 `process_findings` 与 `outcome_findings` 分开记账，
+  结果不可用不再把 `process_clean` 拉黑
+
+### Added
+
+- **Outcome Validation 层**：`validate_outcome_for_scoring(case, indicator, outcome)`
+  → `{valid, status, invalidating_codes, warnings, legacy, primary_basis, display_value}`，
+  可独立调用，不依赖状态机此前是否跑过揭晓检查
+- **失效码集合 `OUTCOME_INVALIDATING_CODES`**：
+  `REVEAL_CALIBER_MISMATCH` / `REVEAL_TARGET_PERIOD_MISMATCH` / `REVEAL_FIELD_MISSING`。
+  **只把真正让结果无法使用的码升级为 INVALID** —— 缺 `published_at` / `revision_status`
+  这类仍按 WARN 处理，交由使用者判断
+- **四态结果状态**：`VALID` / `INVALID` / `LEGACY_UNVERIFIED` / `UNKNOWN`，
+  多指标可整体为 `PARTIAL_INVALID`。**「未知」与「已知但不能用于评分」被严格区分**
+- **逐指标新增字段**：`outcome_valid` / `outcome_status` / `outcome_invalidating_codes` /
+  `outcome_warnings` / `outcome_flags` / `primary_actual_basis` / `revision_comparison` /
+  `revision_tracks`
+- **两个新裁决**：`PROCESS_GOOD_OUTCOME_INVALID` 与 `PROCESS_DEFECTIVE_OUTCOME_INVALID`，
+  复盘八象限（原六象限 + 结果不可用两支）
+- **`OUTCOME_REVISION_SENSITIVE`**：两轨结论不同时标记，**不归入** REASONING / MODEL /
+  PROBABILITY —— 修订带来的结论变化不是用户的推理错误
+- **`primary_actual_basis`**：`actual_value` 保留为主记录值；主轨优先取
+  `latest_revised`，其次 `as_reported_then`，最后退回 `actual_value`
+- **Test 24—27**：无效揭晓不得评分、口径不符不得评分、裸 legacy actual 不得评分、
+  修订双轨评价
+- **变异 G / H / I**（变异套件由 6 项扩到 **9 项**）：
+  G 忽略失效码继续评分 → test-24 转红；H 让裸 `actual` 继续评分 → test-26 转红；
+  I 只评 `latest_revised` 忽略 `as_reported_then` → test-27 转红
+- **两条端到端演练**（`tests/e2e/`）：
+  - E2E A 纯合成案例，走完 12 状态机，故意制造 7 类错误并逐条验证拦截
+    （`synthetic-full-run.md`）
+  - E2E B 真实历史盲测演练（注明 `DO_NOT_USE_FOR_REAL_TRAINING`），
+    含预测阶段来源允许清单、预测哈希锁定与揭晓后完整性校验
+    （`real-historical-full-run.md`、`locked-forecast.json`）
+  - 汇总报告 `e2e-report.md`，另含 §35 十四项"系统有无表现怪异"检查
+- **Fault Injection**：对同一已锁定案例故意注入错误年份 / 错误口径 / 裸 `actual`
+  三种坏结果，确认三者全部拒绝评分，补齐正确结果后恢复正常评分
+
+### Changed
+
+- **夹具迁移（3 个）**：`test-08` / `test-09` / `test-15` 原先使用裸 `actual`，
+  在新规则下会被判为 `LEGACY_UNVERIFIED` 而改变裁决。判定为**夹具本身不完整**
+  （不是期望逻辑有误），故按 §11 升级为正式揭晓记录（补 `actual_unit` /
+  `actual_caliber` / `actual_period` / `source` 等）。**期望值一行未改**，
+  原有测试意图完整保留；legacy 路径改由新增的 `test-26` 专门覆盖
+- 测试规模：23 tests / 57 steps → **27 tests / 55 steps**（默认；含 4 个对话级映射时为 63 steps）
+- 变异套件：6 项 → **9 项**，实测 **9/9 CAUGHT**
+- `case_summary` 新增 `n_valid_outcomes` / `n_invalid_outcomes` /
+  `n_legacy_outcomes` / `n_unscored_valid` / `outcome_states`；
+  `outcome_status` 取值扩展为
+  `REVEALED` / `PARTIAL` / `PARTIAL_INVALID` / `INVALID` / `LEGACY_UNVERIFIED` / `UNKNOWN`
+- CLI `postmortem` 逐指标输出 `outcome_status` / `outcome_valid` /
+  `(basis=…)` / `NOT_SCORABLE:` / `revision:` 双轨表 / `outcome_flag:` 行
+
+### Known Limitations
+
+- **状态顺序不由代码强制**：`judge_checks.py` 只做规则判定，不校验 `stage` 迁移。
+  「BLOCK 期间不得推进状态」仍靠教练自律（E2E A 发现 2）
+- **`check_reply()` 不校验陈述真实性**：它只能拦抢答 / 剧透 / 问题过多 / 夸奖 /
+  分析师口吻，无法发现"教练把实算结果说反了"（E2E A 发现 3）
+- **零指标案例被报为 `ADMISSION_OK`**：没有任何指标时不该宣告准入通过（E2E A 发现 1）
+- **自然语言抽取仍非自动解析器**：本轮 E2E 输入为结构化字段，
+  "大白话 → 字段"这一环仍只有 `tests/conversation/` 的 4 个场景覆盖
+- **自检自测不能替代盲测**：在工作区内由同一执行者完成 E2E B 时，
+  `FORECAST_LOCK_INTEGRITY=PASS` 只证明流程被遵守，
+  **不能**证明执行者对后截点信息不知情
+
+---
+
 ## [0.2.3] — 2026-10-03
 
 正确性补丁（correctness patch）。**不重构、不扩功能、不新增大段方法论。**

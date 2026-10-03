@@ -6,8 +6,8 @@
 
 ## A. 自动测试
 
-- [ ] `python tests/run_regression.py --conversation` → `REGRESSION_STATUS=PASS`，23 tests、57/57 steps
-      （其中 4 个为对话级映射用例；不加 `--conversation` 时为 23 tests / 49 steps）
+- [ ] `python tests/run_regression.py --conversation` → `REGRESSION_STATUS=PASS`，27 tests、63/63 steps
+      （其中 4 个为对话级映射用例；不加 `--conversation` 时为 27 tests / 55 steps）
 - [ ] `python -m py_compile scripts/judge_checks.py tests/run_regression.py tests/mutation_check.py` → 无输出
 - [ ] `python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json`
       → `GATE_QUAL_QUANT_CONFLICT`、`GATE_STOCK_FLOW_UNRESOLVED`、`GATE_QUANTITY_PRICE_UNRESOLVED`、
@@ -26,6 +26,17 @@
       → `interval_hit=false`、`scored_event_hit=true`、`brier=0.04`、`verdict=PROCESS_GOOD_OUTCOME_HIT`
 - [ ] **v0.2.3 新增**：`reveal tests/cases/test-22-reveal-target-period.json`
       → step2 出现 `REVEAL_TARGET_PERIOD_MISMATCH`(BLOCK)，step1 / step3 为 `REVEAL_OK`
+- [ ] **v0.2.4 新增**：`postmortem tests/cases/test-24-invalid-reveal-no-scoring.json`
+      → `outcome_valid=false`、`outcome_status=INVALID`、`outcome_invalidating_codes` 含
+        `REVEAL_TARGET_PERIOD_MISMATCH`、`interval_hit`/`scored_event_hit`/`brier` 全 `None`、
+        `actual_value=450` 仍保留、`process_clean=true`、裁决 `PROCESS_GOOD_OUTCOME_INVALID`
+- [ ] **v0.2.4 新增**：`postmortem tests/cases/test-25-caliber-mismatch-no-scoring.json`
+      → 数字虽落在区间内，仍 `REVEAL_CALIBER_MISMATCH`(BLOCK)、`outcome_valid=false`、`brier=None`
+- [ ] **v0.2.4 新增**：`postmortem tests/cases/test-26-legacy-actual-unverified.json`
+      → `actual_value=500`（读出）、`outcome_status=LEGACY_UNVERIFIED`、`outcome_valid=false`、`brier=None`
+- [ ] **v0.2.4 新增**：`postmortem tests/cases/test-27-revision-dual-evaluation.json`
+      → `revision_comparison=DIFFERENT`、`revision_tracks.as_reported_then.brier=0.09`、
+        `revision_tracks.latest_revised.brier=0.49`、`outcome_flags` 含 `OUTCOME_REVISION_SENSITIVE`
 
 ---
 
@@ -47,12 +58,15 @@ python tests/mutation_check.py
 | D | **禁用"发布 > 截点 且 所属期 ≤ 截点"判定** | `test-16` |
 | E | **复盘退回只读旧字段 `actual`**（v0.2.3 §1） | `test-19`、`test-23` |
 | F | **Brier 退回用 `interval_hit`**（v0.2.3 §3/§7） | `test-20`、`test-23` |
+| G | **忽略结果失效码，继续按值评分**（v0.2.4 §23） | `test-24`、`test-25` |
+| H | **让裸 `actual` 继续正式评分**（v0.2.4 §23） | `test-26` |
+| I | **只评 `latest_revised`，忽略 `as_reported_then`**（v0.2.4 §23） | `test-27` |
 
-要求：**6/6 变异被捕获**（`MUTATION_STATUS=PASS`）。
+要求：**9/9 变异被捕获**（`MUTATION_STATUS=PASS`）。
 
 > 实现见 `tests/mutation_check.py`，说明见 `docs/design-notes.md` 附录 A。
 > 变异必须在**临时副本**上做，不得改动仓库文件（脚本已保证）。
-> E / F 不是可选项：它们分别对应 v0.2.3 修掉的两个 correctness bug，
+> E / F 与 G / H / I 不是可选项：它们各自对应一次修掉的 correctness bug，
 > 必须能把这批新测试打红，否则新测试就是装饰。
 
 ---
@@ -141,16 +155,30 @@ python tests/mutation_check.py
       否则没法判断你当时能不能看到"
 - [ ] 用户主动隔离了一条材料但也不知道发布时间 → **不得因此卡住流程**（只提示）
 
+### C.4 v0.2.4 结果完整性的前台确认
+
+脚本已覆盖，但教练的**前台表述**需人工确认一次（不得念字段名）：
+
+- [ ] 用户给的结果口径与预测口径不一致 → 前台说的是「这是户籍人口，你预测用的是
+      常住人口，这两个对不上，先确认口径」，而**不是**直接算命中
+- [ ] 用户只给一个裸数（「实际 500」）→ 前台**继续追问**单位 / 口径 / 期间 / 来源，
+      **不得**拿这个数去评分
+- [ ] 结果不可用（口径 / 期间不符）时 → 前台明确说「这次对不了答案，先不谈命中」，
+      **不得**报一个命中或未命中
+- [ ] 修订造成两轨结论不同 → 前台**两轨都说**：「按当时公布的 790 是命中；
+      按修订后的 812 是未命中」，不得只给一个最终 verdict
+- [ ] 结果不可用**不得**被说成"你这次判断错了" —— 过程与结果是两笔账
+
 ---
 
 ## D. 文档与仓库卫生
 
 - [ ] 所有 Markdown 相对链接可达（见 `docs/design-notes.md` 的链接检查方法）
 - [ ] `SKILL.md` frontmatter 含 `name` / `version` / `description` / `agent_created: true`
-- [ ] `SKILL.md` 正文长度 < 6000 字符（保持主文件精炼；v0.2.2 实测 4130，v0.2.3 实测 4441）
+- [ ] `SKILL.md` 正文长度 < 6000 字符（保持主文件精炼；v0.2.2 实测 4130，v0.2.3 实测 4441，v0.2.4 实测 4875）
 - [ ] 新增的 `references/*.md` 已登记进 `SKILL.md` 的「Reference 加载表」
 - [ ] Skill 目录不含绝对路径、不含个人隐私信息、不含真实历史结局
-- [ ] `CHANGELOG.md` 已更新（v0.2.3 单开一节，历史节不得回改数值）
+- [ ] `CHANGELOG.md` 已更新（v0.2.4 单开一节，历史节不得回改数值）
 - [ ] `git status` 中无临时文件、无 `__pycache__`
 
 ---

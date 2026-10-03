@@ -237,6 +237,12 @@
 > 只写 `actual_period`（如「2013」）时按年比对；写了 `actual_period_end`
 > 则要求与 `forecast_to` 完全同日。
 
+> **抽取不全不等于可以照旧评分（v0.2.4）**：用户只给一个裸数（「实际 500」）时，
+> 该值**可以被读出来查看与迁移**，但标记 `outcome_status = LEGACY_UNVERIFIED`、
+> `outcome_valid = false`，**命中与 Brier 一律 `null`**。
+> 教练的正确动作是**继续追问单位 / 口径 / 期间 / 来源**，而不是拿这个裸数去算分。
+> 兼容层的含义是「旧数据还能打开」，不是「旧数据可以绕过完整性要求」。
+
 ---
 
 ## 六、信息防火墙映射（最容易做错的一段）
@@ -308,6 +314,9 @@
 - [ ] 材料是否有 `published_at`，且 ≤ 截点？**正在使用**的材料缺时间就是 BLOCK。
 - [ ] 给了 `probability` 的指标，是否都写清了 `scored_event`，而不是照抄预测区间？
 - [ ] 揭晓的 `actual_period_end` 是否等于 `forecast_to`？
+- [ ] （v0.2.4）结果的必填字段（`actual_value` / `actual_unit` / `actual_caliber` /
+      `actual_period(_end)` / `source`）是否齐备？缺任一 → 结果 `INVALID`，不得评分
+- [ ] （v0.2.4）是否拿一个裸数（只有 `actual`）去参加了正式评分？（应标记 `LEGACY_UNVERIFIED`）
 - [ ] 若走了替代推导路径，`alternative_mechanism` 是否写清？
 - [ ] 提交阶段四个字段（reasoning / failure_conditions / counterargument / missing_info）是否齐全？
 - [ ] 是否把"用户没提"错误地当成了"用户确认否"？
