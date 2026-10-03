@@ -47,6 +47,12 @@ FRONT_STAGE_LIMIT = 3         # 前台一次最多呈现几条
 # 三态字段：true / false / "unknown"。缺失 = 未检查，不得默认通过。
 UNKNOWN = "unknown"
 TRI_STATE_REQUIRED = ("stock_flow_relevant", "quantity_price_relevant")
+
+# 评分命题（v0.2.3）：概率必须绑定到"它到底在赌哪件事"。
+# 预测区间（forecast_low/high）与评分命题是**两回事**，允许不同，但都必须写下。
+SCORED_EVENT_TYPES = ("interval", "threshold", "direction")
+THRESHOLD_OPS = (">", ">=", "<", "<=")
+DIRECTION_OPS = ("up", "down", "flat")
 # 适用该字段的 kind（kind 缺失时视为 flow，从严）
 FLOW_LIKE_KINDS = {"flow", "stock", "quantity"}
 AMOUNT_LIKE_KINDS = {"flow", "stock"}
@@ -59,16 +65,18 @@ PRIORITY = {
     # P0 信息污染 / 时间边界 —— 污染即整轮作废
     "CUTOFF_NOT_SET": "P0", "FIREWALL_CONTAMINATION": "P0",
     "FIREWALL_LOOKAHEAD_LEAKAGE": "P0", "SOURCE_DATE_UNKNOWN": "P0",
-    # P1 基期 / 口径 / 单位 / 字段未判定
+    "BASE_PUBLICATION_UNKNOWN": "P0",
+    # P1 基期 / 口径 / 单位 / 字段未判定 / 期间错配
     "GATE_BASE_MISSING": "P1", "GATE_CALIBER_MISSING": "P1",
     "GATE_UNIT_MISSING": "P1", "GATE_FIELD_UNKNOWN": "P1",
-    "GATE_FIELD_UNCHECKED": "P1",
+    "GATE_FIELD_UNCHECKED": "P1", "REVEAL_TARGET_PERIOD_MISMATCH": "P1",
     # P2 定性定量明显矛盾
     "GATE_QUAL_QUANT_CONFLICT": "P2", "GATE_QUAL_QUANT_TENSION": "P2",
     # P3 推导链缺失
     "GATE_NO_HISTORY_SERIES": "P3", "LIMITED_HISTORY": "P3",
     "GATE_DRIVER_MISSING": "P3", "GATE_CONSTRAINT_MISSING": "P3",
     "LOCK_FIELD_MISSING": "P3", "PROB_NO_PROPOSITION": "P3", "PROB_MISSING": "P3",
+    "PROB_SCORED_EVENT_MISSING": "P3", "PROB_SCORED_EVENT_INVALID": "P3",
     "REVEAL_FIELD_MISSING": "P3", "REVEAL_CALIBER_MISMATCH": "P3",
     "REVEAL_RECORD_MINIMAL": "P3",
     # P4 模型结构
@@ -77,6 +85,7 @@ PRIORITY = {
     "PROB_UNIFORM": "P5", "PROB_PRECISION": "P5", "PROB_SUM": "P5",
     "PROB_LOGIC_SUBSET": "P5", "PROB_EXTREME": "P5", "PROB_OUT_OF_RANGE": "P5",
     "PROB_RANGE_INVERTED": "P5", "PROB_RELATION_UNRESOLVED": "P5",
+    "PROB_SCORED_EVENT_MULTIPLE": "P5",
     "OUTCOME_SCOPE_AMBIGUOUS": "P5",
     # P6 基准率
     "BASE_RATE_MISSING": "P6", "BASE_RATE_MISSING_PROB_TOO_HIGH": "P6",
@@ -280,6 +289,130 @@ def mid_of(ind):
     return None
 
 
+# ------------------------------------------------- 评分命题（v0.2.3）
+#
+# 规则（写死，不留给解释）：
+#   1. 概率必须绑定到**唯一一个** primary scored event —— 「你到底在赌哪件事」。
+#   2. 预测区间 `forecast_low/high` 与评分命题是两个不同的承诺，允许不同：
+#        「我觉得会落在 480—520」   ← 区间
+#        「我赌它 > 420，八成把握」  ← 评分命题 + 概率
+#      这两句可以同时为真，也可以一真一假 —— 所以必须分开输出、分开裁决。
+#   3. 每个指标只允许一个 primary scored event；多命题要拆成多指标
+#      （架构不做 scored_predictions[]，见 docs/design-notes.md）。
+#   4. 判定结果是三态：True / False / None。None = 无法判定，
+#      **不等于未命中**，因此 Brier 在 None 时不出数。
+
+def scored_event_of(ind) -> tuple:
+    """取指标的 primary scored event。返回 (event_or_None, issue_code_or_None)。"""
+    raw = ind.get("scored_event")
+    if raw is None:
+        return None, None
+    if isinstance(raw, list):
+        items = [x for x in raw if isinstance(x, dict)]
+        if len(items) == 1 and len(raw) == 1:
+            return items[0], None
+        if not raw:
+            return None, None
+        return None, "PROB_SCORED_EVENT_MULTIPLE"
+    if isinstance(raw, dict):
+        return raw, None
+    return None, "PROB_SCORED_EVENT_INVALID"
+
+
+def validate_scored_event(ev) -> str | None:
+    """校验评分命题的结构。合法返回 None，否则返回人话错误说明。"""
+    if not isinstance(ev, dict):
+        return "不是一个对象"
+    t = str(ev.get("type") or "").strip().lower()
+    if t not in SCORED_EVENT_TYPES:
+        return (f"type 必须是 {'/'.join(SCORED_EVENT_TYPES)} 之一，当前为 {ev.get('type')!r}")
+    if t == "interval":
+        lo, hi = ev.get("low"), ev.get("high")
+        if lo is None or hi is None:
+            return "interval 必须同时给出 low 与 high"
+        try:
+            if float(lo) > float(hi):
+                return f"interval 上下限颠倒：low={lo} > high={hi}"
+        except (TypeError, ValueError):
+            return "interval 的 low/high 必须是数值"
+        return None
+    if t == "threshold":
+        if ev.get("value") is None:
+            return "threshold 必须给出 value"
+        try:
+            float(ev.get("value"))
+        except (TypeError, ValueError):
+            return "threshold 的 value 必须是数值"
+        if str(ev.get("op") or "").strip() not in THRESHOLD_OPS:
+            return (f"threshold 的 op 必须是 {'/'.join(THRESHOLD_OPS)} 之一，"
+                    f"当前为 {ev.get('op')!r}")
+        return None
+    # direction
+    if str(ev.get("direction") or "").strip().lower() not in DIRECTION_OPS:
+        return (f"direction 的 direction 必须是 {'/'.join(DIRECTION_OPS)} 之一，"
+                f"当前为 {ev.get('direction')!r}")
+    return None
+
+
+def evaluate_scored_event(actual, scored_event, base_value=None):
+    """判定结果是否命中**被评分的那一个命题**。返回 True / False / None。
+
+    None = 无法判定（缺结果值、命题不完整、direction 缺基期）——
+    必须与 False 严格区分：**未知 ≠ 未命中**。
+    """
+    if actual is None or not isinstance(scored_event, dict):
+        return None
+    if validate_scored_event(scored_event) is not None:
+        return None
+    try:
+        a = float(actual)
+    except (TypeError, ValueError):
+        return None
+
+    t = str(scored_event.get("type")).strip().lower()
+    if t == "interval":
+        return float(scored_event["low"]) <= a <= float(scored_event["high"])
+    if t == "threshold":
+        th = float(scored_event["value"])
+        op = str(scored_event["op"]).strip()
+        if op == ">":
+            return a > th
+        if op == ">=":
+            return a >= th
+        if op == "<":
+            return a < th
+        return a <= th
+    # direction：相对基期值
+    try:
+        b = float(base_value)
+    except (TypeError, ValueError):
+        return None
+    d = str(scored_event.get("direction")).strip().lower()
+    if d == "up":
+        return a > b
+    if d == "down":
+        return a < b
+    return a == b
+
+
+def period_matches_forecast_target(actual_period, forecast_to):
+    """结果所属期末是否等于预测目标期。返回 True / False / None。
+
+    v0.2.3：揭晓最容易出的错不是"值不对"，而是**值对错了时期**——
+    拿 2012 年的数字去结算 2013 年的预测，命中判定整份作废。
+    两端都是完整日期时要求同日；否则退化为同年比较（旧档案只写"2013"也兼容）。
+    """
+    if actual_period in (None, "") or forecast_to in (None, ""):
+        return None
+    ad, fd = parse_full_date(actual_period), parse_full_date(forecast_to)
+    if ad and fd:
+        return ad == fd
+    ay, fy = parse_year(actual_period), parse_year(forecast_to)
+    if ay is None or fy is None:
+        return None
+    return ay == fy
+
+
 # ---------------------------------------------------------------- 检查：案例
 
 def _publish_date(rec) -> tuple:
@@ -317,13 +450,22 @@ def check_firewall(case) -> list[Finding]:
         lab = src.get("published_at") or src.get("source_date") or src.get("date")
 
         if pub is None:
-            if src.get("available_at_cutoff") is False:
+            if isolated:
+                # v0.2.3 §11：已隔离材料不参与预测，发布时间不明只提示，**不得阻断**
+                # （否则用户会因为"不敢删的旧材料"而卡死，被迫伪造时间）。
+                out.append(Finding("SOURCE_DATE_UNKNOWN", INFO, scope,
+                                   "已隔离材料未记录发布时间；不参与预测，暂不阻断。",
+                                   "若要重新启用作依据，必须先补 published_at。"))
+            elif src.get("available_at_cutoff") is False:
                 out.append(Finding("FIREWALL_LOOKAHEAD_LEAKAGE", BLOCK, scope,
                                    "记录标注为截点前不可获得，却没有发布时间，无法核验。",
                                    "先补 published_at 再谈能不能用。"))
             else:
-                out.append(Finding("SOURCE_DATE_UNKNOWN", WARN, scope,
-                                   "材料发布时间不明；未确认截点前出处前不得用于预测。"))
+                # v0.2.3 §10：**正在使用**的材料没有发布时间 → 硬闸门。
+                # 在此之前只是 WARN，导致"截点前可获得"从未被真正证明过。
+                out.append(Finding("SOURCE_DATE_UNKNOWN", BLOCK, scope,
+                                   "正在使用的材料没有发布时间，无法证明截点当天可获得。",
+                                   "补 published_at（或 source_date）；否则只能把它隔离。"))
             continue
 
         if pub > cutoff:
@@ -354,9 +496,11 @@ def check_firewall(case) -> list[Finding]:
                                f"基期数据公开时间 {raw} 晚于截点 {case.get('historical_cutoff')}。",
                                "截点当天拿不到这个基期值。"))
         elif base_pub is None and ind.get("base_value") is not None:
-            out.append(Finding("SOURCE_DATE_UNKNOWN", WARN, scope,
-                               "有基期值，但未记录该值的公开时间；无法证明截点当天可获得。",
-                               "请补 base_published_at。"))
+            # v0.2.3 §12：有基期值却没有它的公开时间 —— 与"在用材料无发布时间"同级。
+            # 此前只是 WARN，于是"这个基期值截点当天真能拿到吗"从未被证明。
+            out.append(Finding("BASE_PUBLICATION_UNKNOWN", BLOCK, scope,
+                               "有基期值，但未记录该值的公开时间，无法证明截点当天可获得。",
+                               "补 base_published_at（或 base_source_date）。"))
     return out
 
 
@@ -546,6 +690,23 @@ def check_probabilities(case) -> list[Finding]:
             continue
         probs.append((name, p))
 
+        # ---- v0.2.3 §5：概率必须绑定到"同一个命题" ----
+        # 没有这一步，Brier 只能拿预测区间硬凑，评的就不是用户真正押的那件事。
+        ev, ev_issue = scored_event_of(ind)
+        if ev_issue:
+            out.append(Finding(ev_issue, BLOCK, scope,
+                               "存在多个评分命题；每个指标只允许一个 primary scored_event。",
+                               "把概率绑定到唯一的主命题，其余命题另立指标。"))
+        elif ev is None:
+            out.append(Finding("PROB_SCORED_EVENT_MISSING", BLOCK, scope,
+                               "有概率，但没有说明这个概率绑定的是哪个命题（scored_event）。",
+                               "补 scored_event：type=interval / threshold / direction。"))
+        else:
+            bad = validate_scored_event(ev)
+            if bad:
+                out.append(Finding("PROB_SCORED_EVENT_INVALID", BLOCK, scope,
+                                   f"scored_event 不合法：{bad}。"))
+
         lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
         if lo is not None and hi is not None and float(lo) > float(hi):
             out.append(Finding("PROB_RANGE_INVERTED", BLOCK, scope,
@@ -701,6 +862,16 @@ def check_reveal(case) -> list[Finding]:
                                "结果标注为已修订 / 终值，但未保留当时公布值（as_reported_then）。",
                                "须同时保留「当时公布值」与「后来修订值」，不得只留对预测有利的那个。"))
 
+        # v0.2.3 §14—§17：揭晓最隐蔽的错不是"值不对"，而是"值对错了年份"。
+        # 旧实现只做 base_period == actual_period 的 WARN，完全不校验预测目标期。
+        period_end = rec.get("actual_period_end") or rec.get("actual_period")
+        match = period_matches_forecast_target(period_end, case.get("forecast_to"))
+        if match is False:
+            out.append(Finding("REVEAL_TARGET_PERIOD_MISMATCH", BLOCK, scope,
+                               f"结果所属期末 {period_end} 与预测目标期 "
+                               f"{case.get('forecast_to')} 不一致。",
+                               "命中的前提是同一个时期：先对齐期间，再谈命中。"))
+
     if not out:
         out.append(Finding("REVEAL_OK", INFO, "<case>", "揭晓记录字段与口径核验通过。"))
     return out
@@ -803,6 +974,9 @@ FLAG_TO_ATTRIBUTION = {
     "PROB_LOGIC_SUBSET": "PROBABILITY",
     "PROB_SUM": "PROBABILITY",
     "PROB_NO_PROPOSITION": "PROBABILITY",
+    "PROB_SCORED_EVENT_MISSING": "PROBABILITY",
+    "PROB_SCORED_EVENT_INVALID": "PROBABILITY",
+    "PROB_SCORED_EVENT_MULTIPLE": "PROBABILITY",
     "PROB_MISSING": "PROBABILITY",
     "PROB_OUT_OF_RANGE": "PROBABILITY",
     "PROB_RANGE_INVERTED": "PROBABILITY",
@@ -810,9 +984,11 @@ FLAG_TO_ATTRIBUTION = {
     "FIREWALL_CONTAMINATION": "FACTUAL",
     "FIREWALL_LOOKAHEAD_LEAKAGE": "FACTUAL",
     "SOURCE_DATE_UNKNOWN": "FACTUAL",
+    "BASE_PUBLICATION_UNKNOWN": "FACTUAL",
     "LOCK_FIELD_MISSING": "REASONING",
     "REVEAL_FIELD_MISSING": "CALIBER",
     "REVEAL_CALIBER_MISMATCH": "CALIBER",
+    "REVEAL_TARGET_PERIOD_MISMATCH": "CALIBER",
     "REVEAL_PERIOD_MISMATCH": "CALIBER",
     "REVEAL_REVISION_UNRECORDED": "CALIBER",
 }
@@ -940,18 +1116,35 @@ def postmortem(case) -> dict:
 
         oc = out_map.get(name) or {}
         lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
-        actual = oc.get("actual")
+        # v0.2.3 §1：揭晓写的是 `actual_value`，复盘却一直只读 `actual` ——
+        # 于是"揭晓成功、复盘却当没揭晓"（OUTCOME_UNKNOWN）。`actual` 仅作旧档案兼容。
+        actual = oc.get("actual_value")
+        if actual is None:
+            actual = oc.get("actual")
+
+        # 区间命中：用户对"落在哪一段"的承诺
         hit = oc.get("interval_hit")
         if hit is None and actual is not None and lo is not None and hi is not None:
             try:
                 hit = float(lo) <= float(actual) <= float(hi)
             except (TypeError, ValueError):
                 hit = None
+
+        # v0.2.3 §8：评分命题命中是**另一个概念**，与区间命中分开输出。
+        # 允许合法地出现 interval_hit=false / scored_event_hit=true。
+        ev, _ = scored_event_of(ind)
+        se_hit = oc.get("scored_event_hit")
+        if se_hit is None:
+            se_hit = evaluate_scored_event(actual, ev, ind.get("base_value"))
+
         try:
             prob = float(ind.get("probability"))
         except (TypeError, ValueError):
             prob = None
-        brier = (prob - (1.0 if hit else 0.0)) ** 2 if (prob is not None and hit is not None) else None
+        # v0.2.3 §3/§7：Brier 必须针对"同一个概率命题" = scored_event。
+        # 旧实现直接拿 interval_hit 代入，等于用一个用户没赌过的区间给概率打分。
+        brier = (prob - (1.0 if se_hit else 0.0)) ** 2 \
+            if (prob is not None and se_hit is not None) else None
 
         indicator_results.append({
             "indicator": name,
@@ -959,14 +1152,21 @@ def postmortem(case) -> dict:
             "probability": prob,
             "forecast_low": lo,
             "forecast_high": hi,
-            "actual": actual,
+            "forecast_range": [lo, hi] if (lo is not None or hi is not None) else None,
+            "actual_value": actual,
+            "actual": actual,          # v0.2.1 兼容别名（新档案请用 actual_value）
             "interval_hit": hit,
+            "scored_event": ev,
+            "scored_event_hit": se_hit,
+            # v0.2.3：裁决与 Brier 用**同一个**结果——评分命题优先。
+            # 没有评分命题时才退回区间命中（老档案 / 无概率的纯区间预测）。
+            "outcome_hit": se_hit if se_hit is not None else hit,
             "brier": None if brier is None else round(brier, 6),
             "block_codes": blocks,
             "warn_codes": warns,
             "error_attribution": sorted(_attribution(blocks + warns).keys()),
             "process_clean": clean,
-            "verdict": _quadrant(clean, hit),
+            "verdict": _quadrant(clean, se_hit if se_hit is not None else hit),
             "note": oc.get("note") if isinstance(oc, dict) else None,
         })
 
@@ -995,6 +1195,7 @@ def postmortem(case) -> dict:
 
     first = indicator_results[0] if indicator_results else None
     top_verdict = first["verdict"] if first else overall
+    resolved = [r for r in indicator_results if r["outcome_hit"] is not None]
 
     return {
         # ---- 兼容字段（v0.2.1 及以前的调用方）：单指标时语义不变 ----
@@ -1003,6 +1204,7 @@ def postmortem(case) -> dict:
         "warn_codes": sorted(set(case_warn + [c for r in indicator_results for c in r["warn_codes"]])),
         "error_attribution": sorted(whole_att.keys()),
         "interval_hit": first["interval_hit"] if first else None,
+        "scored_event_hit": first["scored_event_hit"] if first else None,
         "brier": first["brier"] if (first and len(indicator_results) == 1) else None,
         "process_clean": bool(first["process_clean"]) if first else False,
         # ---- 新结构 ----
@@ -1015,14 +1217,17 @@ def postmortem(case) -> dict:
         },
         "case_summary": {
             "n_indicators": len(indicator_results),
-            "n_hit": sum(1 for r in indicator_results if r["interval_hit"] is True),
-            "n_miss": sum(1 for r in indicator_results if r["interval_hit"] is False),
-            "n_unknown": sum(1 for r in indicator_results if r["interval_hit"] is None),
+            "n_hit": sum(1 for r in indicator_results if r["outcome_hit"] is True),
+            "n_miss": sum(1 for r in indicator_results if r["outcome_hit"] is False),
+            "n_unknown": sum(1 for r in indicator_results if r["outcome_hit"] is None),
+            # 区间视角的命中计数，与评分命题视角分开（两者可合法不同）
+            "n_interval_hit": sum(1 for r in indicator_results if r["interval_hit"] is True),
+            "n_interval_miss": sum(1 for r in indicator_results if r["interval_hit"] is False),
             "verdict_counts": counts,
             "overall": overall,
             "outcome_status": (
-                "PARTIAL" if 0 < sum(1 for r in indicator_results if r["interval_hit"] is not None) < len(indicator_results)
-                else "REVEALED" if indicator_results and all(r["interval_hit"] is not None for r in indicator_results)
+                "PARTIAL" if 0 < len(resolved) < len(indicator_results)
+                else "REVEALED" if indicator_results and len(resolved) == len(indicator_results)
                 else "UNKNOWN"
             ),
         },
@@ -1170,8 +1375,11 @@ def main(argv=None) -> int:
                     print(f"  {r['indicator']}")
                     print(f"    proposition : {r['proposition']}")
                     print(f"    probability : {r['probability']}")
-                    print(f"    forecast    : [{r['forecast_low']}, {r['forecast_high']}]")
-                    print(f"    actual      : {r['actual']}  interval_hit={r['interval_hit']}  brier={r['brier']}")
+                    print(f"    forecast    : {r['forecast_range']}")
+                    print(f"    scored_event: {json.dumps(r['scored_event'], ensure_ascii=False)}")
+                    print(f"    actual      : {r['actual_value']}  "
+                          f"interval_hit={r['interval_hit']}  "
+                          f"scored_event_hit={r['scored_event_hit']}  brier={r['brier']}")
                     print(f"    verdict     : {r['verdict']}")
                     print(f"    attribution : {', '.join(r['error_attribution']) or '(none)'}")
                     if r["block_codes"]:

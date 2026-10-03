@@ -50,12 +50,15 @@
 | 10 未拆量价 | `GATE_QUANTITY_PRICE_UNRESOLVED` | BLOCK | 这个数字背后产量和价格分别假设了什么？ |
 | 附加：难度越界 | `LEVEL1_TOO_MANY_INDICATORS`、`LEVEL1_HORIZON_TOO_LONG` | WARN | 第一轮就 4 个指标 5 年期，先把 2 个指标 3 年跑通。 |
 | 附加（v0.2.2 新增）：字段未判定 | `GATE_FIELD_UNCHECKED` | BLOCK | GDP 与财政收入这两项，涉及存量流量/量价分解的判断还没做过——不能因为没说就当成"无关"。 |
-| 附加（v0.2.2 新增）：基期公布时间不明 | `SOURCE_DATE_UNKNOWN` | WARN | 这个基期值是哪一年公布的？截点当天拿不到就不能用。 |
+| 附加（v0.2.3 修订）：基期公布时间不明 | `BASE_PUBLICATION_UNKNOWN` | BLOCK | 这个基期值是哪一年公布的？截点当天拿不到就不能用——有基期值却说不清公开时间，不能继续。 |
+| 附加（v0.2.3 新增）：概率没绑定命题 | `PROB_SCORED_EVENT_MISSING` | BLOCK | 你给了 85% 的概率，但它押的是哪句话？区间、阈值还是方向？没写清楚，这个概率后面没法评分。 |
 
-**测试结果**：该夹具触发 **39 个 BLOCK 发现、8 个 WARN 发现**，`lockable=NO`。
+**测试结果**：该夹具触发 **45 个 BLOCK 发现、6 个 WARN 发现**，`lockable=NO`。
 
-> v0.2.1 时为 36 BLOCK / 6 WARN；v0.2.2 因新增三态字段闸门（`GATE_FIELD_UNCHECKED`）
-> 与基期公开时间检查（`SOURCE_DATE_UNKNOWN`）而增加。
+> 计数演进：v0.2.1 为 36 BLOCK / 6 WARN；v0.2.2 新增三态字段闸门（`GATE_FIELD_UNCHECKED`）后为 39 BLOCK / 8 WARN；
+> v0.2.3 把「基期有值但公开时间不明」从 `SOURCE_DATE_UNKNOWN`（WARN）升级为 `BASE_PUBLICATION_UNKNOWN`（BLOCK），
+> 并新增「概率必须绑定 scored_event」闸门（`PROB_SCORED_EVENT_MISSING`），故为 45 BLOCK / 6 WARN。
+> 注意 WARN 由 8 降到 6：原 `SOURCE_DATE_UNKNOWN` 的 WARN 已升级为 BLOCK，不再重复计数。
 
 ---
 
@@ -67,6 +70,8 @@ outcome_status       : UNKNOWN   (hit=0 miss=0 unknown=4)
 verdict（逐指标）    : PROCESS_DEFECTIVE_OUTCOME_UNKNOWN ×4
 error_attribution    : BASE_RATE_IGNORED, CALIBER, FACTUAL, MODEL, PROBABILITY, REASONING
 interval_hit         : None
+scored_event_hit     : None   (v0.2.3 起与 interval_hit 分开输出)
+brier                : None   (无实际值 ⇒ 无评分，不按 0 或 1 硬填)
 ```
 
 注意两点：
@@ -74,6 +79,8 @@ interval_hit         : None
 1. 这一轮**不是因为结果错才被判失败**。判定依据是过程缺陷——即使结果碰巧命中，裁决也会是 `LUCKY_ACCURATE`。
 2. v0.2.2 起，当案例**没有提供结果记录**时，裁决是 `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN`
    ——缺陷已足以定论"当时不应锁定"，**无须知道结果**。旧版会把它误判成 `..._MISS`（未知 ≠ 未命中）。
+3. v0.2.3 起，`interval_hit`（预测区间是否覆盖实际值）与 `scored_event_hit`（概率真正押的那个命题是否成立）
+   是两个独立结果，分开输出。本案例没有实际值，两者均为 `None`，Brier 同样为 `None`——**不计算，而不是记为 0**。
 
 ---
 
@@ -96,9 +103,9 @@ interval_hit         : None
 
 新版本遇到**同一形态的输入**时，必须满足：
 
-1. 在用户提交最终预测**之前**触发全部 39 个 BLOCK 中的核心闸门
+1. 在用户提交最终预测**之前**触发全部 45 个 BLOCK 中的核心闸门
 2. `lockable=NO`，不得进入揭晓
-3. 前台只输出其中**最关键的一条**（基期缺失优先），不得把 39 条摊给用户
+3. 前台只输出其中**最关键的一条**（基期缺失优先），不得把 45 条摊给用户
 4. 复盘时归因必须覆盖 `FACTUAL` / `REASONING` / `MODEL` / `PROBABILITY` / `BASE_RATE_IGNORED`
 
 不满足任一条，视为回归失败。

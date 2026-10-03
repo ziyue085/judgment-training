@@ -40,6 +40,7 @@
             "forecast_high": 4.0,
             "probability": 0.7,
             "proposition": "P(2015年原煤产量 ∈ [3,4] 亿吨) = 70%",
+            "scored_event": {"type": "interval", "low": 3, "high": 4},
             "reasoning": "煤炭储量还有 500 亿吨，未来五年产量肯定大增",
             "failure_conditions": "需求下滑",
             "counterargument": "运输瓶颈",

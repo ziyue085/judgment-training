@@ -39,6 +39,7 @@
             "center": 500,
             "probability": 0.6,
             "proposition": "P(2015年GDP ∈ [450,550] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 450, "high": 550},
             "reasoning": "未来五年会继续高速增长",
             "failure_conditions": "煤价大幅回落",
             "counterargument": "需求可能收缩",

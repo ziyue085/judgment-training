@@ -78,6 +78,13 @@ indicators:
     center: null
     probability: null
     proposition: null
+    # 概率**绑定到的那一件具体的事**。缺 → PROB_SCORED_EVENT_MISSING (BLOCK)。
+    # 三种形态：
+    #   { type: interval,  low: 480, high: 520 }
+    #   { type: threshold, op: ">", value: 420 }     op ∈ > | >= | < | <=
+    #   { type: direction, direction: up }           direction ∈ up | down | flat（相对 base_value）
+    # 注意：它**不一定等于** forecast_low/high —— 除非用户真的把概率挂在区间上。
+    scored_event: null
     reasoning: null
     failure_conditions: null
     counterargument: null
@@ -106,14 +113,19 @@ outcomes:
     actual_unit: 亿元
     actual_caliber: 当年价/全市     # 必须与 base_caliber 一致，否则 REVEAL_CALIBER_MISMATCH (BLOCK)
     actual_period: "2013"
+    actual_period_start: 2013-01-01  # 可选：结果所属期起
+    actual_period_end: 2013-12-31    # 期末必须等于 forecast_to，否则 REVEAL_TARGET_PERIOD_MISMATCH (BLOCK)
     source: 2013 年国民经济和社会发展统计公报  # 城市优先公报/年鉴/官方库；企业优先年报/交易所
     published_at: 2014-03-15
     revision_status: revised        # initial | revised | final | unknown
     as_reported_then: null          # 当时公布值（revised/final 时必填）
     latest_revised: null            # 最新修订值
-    actual: null                    # 复盘用数值（可与 actual_value 相同）
-    interval_hit: null
+    scored_event_hit: null          # 可选：显式覆盖评分命题命中（一般留 null 由脚本算）
+    interval_hit: null              # 可选：显式覆盖区间命中
     note: null
+
+# 兼容说明：v0.2.2 及更早的档案可能用裸数值 actual；复盘会回退读取它，
+# 但新记录一律写 actual_value（v0.2.3 修的就是这两者不一致导致的"假 OUTCOME_UNKNOWN"）。
 
 postmortem: null
 principle: null
@@ -194,9 +206,13 @@ postmortem:
       probability: 0.60
       forecast_low: 480
       forecast_high: 520
-      actual: 500
+      forecast_range: [480, 520]
+      actual_value: 500        # v0.2.3 起为准；actual 为旧档兼容别名
+      scored_event: { type: threshold, op: ">", value: 420 }
+      scored_event_hit: true   # true | false | null(=判不了) —— 与区间命中分开
       interval_hit: true       # true | false | null(=未知)
-      brier: 0.16
+      outcome_hit: true        # 裁决用的那个：scored_event_hit 优先，否则 interval_hit
+      brier: 0.16              # 只在 scored_event_hit 可判定时才有值
       block_codes: []
       warn_codes: []
       error_attribution: []
@@ -204,9 +220,11 @@ postmortem:
       verdict: PROCESS_GOOD_OUTCOME_HIT
   case_summary:                # 案例级汇总
     n_indicators: 3
-    n_hit: 1
+    n_hit: 1                   # 按 outcome_hit 统计
     n_miss: 1
     n_unknown: 1
+    n_interval_hit: 1          # 区间视角另计（两者可合法不同）
+    n_interval_miss: 1
     overall: CASE_MIXED        # 见下表
     outcome_status: PARTIAL    # REVEALED | PARTIAL | UNKNOWN
   scores:                      # 每项 A/B/C/D + 必须写原因（逐指标或整轮）

@@ -6,12 +6,13 @@
 
 ## A. 自动测试
 
-- [ ] `python tests/run_regression.py --conversation` → `REGRESSION_STATUS=PASS`，18 tests、41/41 steps
-      （其中 4 个为对话级映射用例）
-- [ ] `python -m py_compile scripts/judge_checks.py tests/run_regression.py` → 无输出
+- [ ] `python tests/run_regression.py --conversation` → `REGRESSION_STATUS=PASS`，23 tests、57/57 steps
+      （其中 4 个为对话级映射用例；不加 `--conversation` 时为 23 tests / 49 steps）
+- [ ] `python -m py_compile scripts/judge_checks.py tests/run_regression.py tests/mutation_check.py` → 无输出
 - [ ] `python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json`
       → `GATE_QUAL_QUANT_CONFLICT`、`GATE_STOCK_FLOW_UNRESOLVED`、`GATE_QUANTITY_PRICE_UNRESOLVED`、
-        `PROB_UNIFORM`、`BASE_RATE_MISSING` 均出现，`lockable=NO`
+        `PROB_UNIFORM`、`BASE_RATE_MISSING`、**`BASE_PUBLICATION_UNKNOWN`**、
+        **`PROB_SCORED_EVENT_MISSING`** 均出现，`lockable=NO`，`block=45 warn=6`
 - [ ] `python scripts/judge_checks.py case tests/cases/test-12-clean-negative-control.json`
       → `block=0 warn=0 lockable=YES`
 - [ ] `python scripts/judge_checks.py postmortem tests/cases/test-11-shenmu-2010-regression.json`
@@ -21,6 +22,10 @@
 - [ ] 多指标复盘：`python scripts/judge_checks.py postmortem tests/cases/test-15-multi-indicator-postmortem.json`
       → `n_hit=1 n_miss=1 n_unknown=1`、`outcome_status=PARTIAL`
 - [ ] 发布晚于截点：`case tests/cases/test-16-publication-after-cutoff.json` → step1 `FIREWALL_LOOKAHEAD_LEAKAGE`
+- [ ] **v0.2.3 新增**：`postmortem tests/cases/test-23-full-pipeline-integration.json`
+      → `interval_hit=false`、`scored_event_hit=true`、`brier=0.04`、`verdict=PROCESS_GOOD_OUTCOME_HIT`
+- [ ] **v0.2.3 新增**：`reveal tests/cases/test-22-reveal-target-period.json`
+      → step2 出现 `REVEAL_TARGET_PERIOD_MISMATCH`(BLOCK)，step1 / step3 为 `REVEAL_OK`
 
 ---
 
@@ -28,16 +33,27 @@
 
 仅"全部通过"不构成证据。必须证明：**破坏闸门后测试会转红**。
 
+一键执行（脚本随仓库分发，自身在工作区外跑临时副本）：
+
+```bash
+python tests/mutation_check.py
+```
+
 | 变异 | 做法 | 期望转红 |
 |---|---|---|
 | A | 让 `check_quant()` 直接 `return []`（关闭隐含 CAGR 与定性定量矛盾） | `test-02`、`test-11` |
 | B | 把 `check_firewall()` 中的 `FIREWALL_CONTAMINATION` 降级为 INFO | `test-07` |
 | C | 强制 `process_clean = True` | `test-08`、`test-11` |
-| D | **禁用"发布时间晚于截点"判定**（只按 `data_period_end ≤ cutoff` 放行） | `test-16` |
+| D | **禁用"发布 > 截点 且 所属期 ≤ 截点"判定** | `test-16` |
+| E | **复盘退回只读旧字段 `actual`**（v0.2.3 §1） | `test-19`、`test-23` |
+| F | **Brier 退回用 `interval_hit`**（v0.2.3 §3/§7） | `test-20`、`test-23` |
 
-要求：4/4 变异被捕获（`MUTATION_STATUS=PASS`）。
+要求：**6/6 变异被捕获**（`MUTATION_STATUS=PASS`）。
 
-> 参考实现见 `docs/design-notes.md` 附录「变异测试脚本」。变异必须在**临时副本**上做，不得改动仓库文件。
+> 实现见 `tests/mutation_check.py`，说明见 `docs/design-notes.md` 附录 A。
+> 变异必须在**临时副本**上做，不得改动仓库文件（脚本已保证）。
+> E / F 不是可选项：它们分别对应 v0.2.3 修掉的两个 correctness bug，
+> 必须能把这批新测试打红，否则新测试就是装饰。
 
 ---
 
@@ -103,16 +119,38 @@
 **发现的问题**：第 3 回合 `base_period` 由"2009 年"推断得来，属合理推断
 （用户原话已含年份），但推断字段应留痕；已在 `state-extraction.md` 第七节统一规定。
 
+**v0.2.3 补充说明（对上面实录的影响）**：
+
+- 第 7 回合用户给的是"140 到 160，八成"——概率直接挂在区间上，
+  故 `scored_event` 按区间写 `{type: interval, low:140, high:160}`（规则 2），
+  不触发 `PROB_SCORED_EVENT_MISSING`。被拦的原因仍是 `PROB_NO_PROPOSITION` + `LOCK_FIELD_MISSING`×4。
+- 第 8 回合用户明确说出命题"P(2013 年地方财政收入 > 130 亿)"。
+  按规则 1（用户明确说了命题 → 按命题写），`scored_event` **必须同步改写**为
+  `{type: threshold, op: ">", value: 130}` —— 它从此不再等于预测区间。
+  这正是 v0.2.3 要固化的行为：**概率评的是命题，不是区间。**
+
+### C.3 v0.2.3 新增闸门的人工确认
+
+脚本已覆盖，但教练的**前台表述**需人工确认一次（不得念字段名）：
+
+- [ ] 用户给出概率但没说赌什么 → 前台问的是"你这句话是在赌哪件事？"
+      （而不是"请提供 scored_event"）
+- [ ] 揭晓时用户给的结果期与预测目标期不一致 → 前台指出"这是 2012 年的数，
+      我们预测的是 2013 年"，而不是直接算命中
+- [ ] 用户用了没写公布时间的材料 → 前台说"这条我得知道它什么时候公开的，
+      否则没法判断你当时能不能看到"
+- [ ] 用户主动隔离了一条材料但也不知道发布时间 → **不得因此卡住流程**（只提示）
+
 ---
 
 ## D. 文档与仓库卫生
 
 - [ ] 所有 Markdown 相对链接可达（见 `docs/design-notes.md` 的链接检查方法）
 - [ ] `SKILL.md` frontmatter 含 `name` / `version` / `description` / `agent_created: true`
-- [ ] `SKILL.md` 正文长度 < 6000 字符（保持主文件精炼；v0.2.2 实测 4130 字符）
+- [ ] `SKILL.md` 正文长度 < 6000 字符（保持主文件精炼；v0.2.2 实测 4130，v0.2.3 实测 4441）
 - [ ] 新增的 `references/*.md` 已登记进 `SKILL.md` 的「Reference 加载表」
 - [ ] Skill 目录不含绝对路径、不含个人隐私信息、不含真实历史结局
-- [ ] `CHANGELOG.md` 已更新
+- [ ] `CHANGELOG.md` 已更新（v0.2.3 单开一节，历史节不得回改数值）
 - [ ] `git status` 中无临时文件、无 `__pycache__`
 
 ---

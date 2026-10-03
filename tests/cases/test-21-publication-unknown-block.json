@@ -1,0 +1,242 @@
+{
+  "id": "test-21-publication-unknown-block",
+  "title": "Test 21 · 发布时间不明：在用材料必须拦住，已隔离材料不得误拦",
+  "scenario": "v0.2.3 修复：SOURCE_DATE_UNKNOWN 原先只是 WARN，于是「这个材料截点当天真能拿到吗」从未被证明过。现在分成两半：① 正在使用（usable != false）却没有发布时间 → BLOCK；② 已被隔离（usable=false）→ 只提示、不得阻断；③ 有基期值却没有它的公开时间 → BASE_PUBLICATION_UNKNOWN BLOCK；④ 补齐后 BLOCK 消失。",
+  "steps": [
+    {
+      "mode": "case",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县统计年鉴（用到但没标注发布时间）",
+            "kind": "fact",
+            "usable": true
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 200},
+              {"period": "2007", "value": 240},
+              {"period": "2008", "value": 270},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP ∈ [480,520] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 480, "high": 520},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["SOURCE_DATE_UNKNOWN"],
+        "must_front_stage_codes": ["SOURCE_DATE_UNKNOWN"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final",
+            "kind": "fact",
+            "usable": true
+          },
+          {
+            "name": "来源不明的网帖（已隔离）",
+            "kind": "opinion",
+            "usable": false,
+            "note": "截点后出现的材料，找不到发布时间，已判定不可用"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 200},
+              {"period": "2007", "value": 240},
+              {"period": "2008", "value": 270},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP ∈ [480,520] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 480, "high": 520},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_info_codes": ["SOURCE_DATE_UNKNOWN"],
+        "lockable": true
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final",
+            "kind": "fact",
+            "usable": true
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "history": [
+              {"period": "2006", "value": 400},
+              {"period": "2007", "value": 480},
+              {"period": "2008", "value": 540},
+              {"period": "2009", "value": 600}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 900,
+            "forecast_high": 1000,
+            "center": 950,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP ∈ [900,1000] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 900, "high": 1000},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["BASE_PUBLICATION_UNKNOWN"],
+        "must_front_stage_codes": ["BASE_PUBLICATION_UNKNOWN"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final",
+            "kind": "fact",
+            "usable": true
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 600,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 400},
+              {"period": "2007", "value": 480},
+              {"period": "2008", "value": 540},
+              {"period": "2009", "value": 600}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 900,
+            "forecast_high": 1000,
+            "center": 950,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP ∈ [900,1000] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 900, "high": 1000},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["BASE_PUBLICATION_UNKNOWN", "SOURCE_DATE_UNKNOWN"],
+        "lockable": true
+      }
+    }
+  ]
+}

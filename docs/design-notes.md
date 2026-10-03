@@ -47,8 +47,9 @@ references/                           按需加载的方法论，避免主文件
   state-extraction.md                 自然语言 → 结构化状态映射（v0.2.2）
   reveal-protocol.md                  揭晓协议：来源层级 / 口径核验 / 统计修订（v0.2.2）
 examples/                             给人看的（含失败案例）
-tests/                                给机器跑的（夹具 + 运行器 + 清单）
+tests/                                给机器跑的（夹具 + 运行器 + 变异 + 清单）
   conversation/                       对话级映射用例（v0.2.2）
+  mutation_check.py                   变异测试 A—F（v0.2.3 起随仓库分发）
 scripts/judge_checks.py               确定性规则层
 docs/design-notes.md                  本文件
 ```
@@ -72,7 +73,7 @@ docs/design-notes.md                  本文件
 
 ### 4.3 前台 1—3 条，后台全清单
 
-`judge_checks.py` 一次可能返回 40+ 条发现（神木夹具为 39 BLOCK + 8 WARN）。**绝不**原样输出。
+`judge_checks.py` 一次可能返回 50+ 条发现（神木夹具为 45 BLOCK + 6 WARN）。**绝不**原样输出。
 
 v0.2.2 把这个纪律**做成了确定实现**，而不是靠模型自觉：
 
@@ -82,7 +83,7 @@ v0.2.2 把这个纪律**做成了确定实现**，而不是靠模型自觉：
 
 完整清单仍写入档案，供复盘使用。另有 `check_reply()` 的 `COACH_TOO_MANY_QUESTIONS` 兜底。
 
-> 为什么需要显式优先级：此前按 severity 排序，神木案例会平铺 39 条 BLOCK，
+> 为什么需要显式优先级：此前按 severity 排序，神木案例会平铺 45 条 BLOCK，
 > 用户无法判断该先补哪一个。优先级让"一次推进一个瓶颈"变得可执行。
 
 ### 4.4 复盘六象限（v0.2.2 由四象限扩展）
@@ -189,9 +190,61 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
 | 发布 > 截点 且 所属期 > 截点 | `FIREWALL_CONTAMINATION`（BLOCK） |
 | 发布 > 截点 且 `usable: false` | `FIREWALL_ISOLATED`（INFO）—— 正确隔离，不报错 |
 | 发布缺失 且 `available_at_cutoff: false` | `FIREWALL_LOOKAHEAD_LEAKAGE`（BLOCK） |
-| 发布缺失 | `SOURCE_DATE_UNKNOWN`（WARN） |
+| 发布缺失 且 `usable: false`（已隔离） | `SOURCE_DATE_UNKNOWN`（**INFO**，v0.2.3：不参与预测，不阻断） |
+| 发布缺失 且正在使用 | `SOURCE_DATE_UNKNOWN`（**BLOCK**，v0.2.3 由 WARN 升级） |
+| 指标有 `base_value` 但无 `base_published_at` | `BASE_PUBLICATION_UNKNOWN`（**BLOCK**，v0.2.3 新增） |
 
-由 `test-16` 三个 step 分别覆盖。变异测试 D 专门证明：**去掉这条判定，test-16 会转红。**
+由 `test-16`（前三种）与 `test-21`（后三种）覆盖。变异测试 D 专门证明：
+**去掉"发布 > 截点 且 所属期 ≤ 截点"这条判定，test-16 会转红。**
+
+### 4.10 评分命题 `scored_event`（v0.2.3 核心修复）
+
+**问题**：v0.2.2 里 `probability` 实际上"无处安放"。它写在指标上，但没有任何字段说明
+这个概率在赌哪件事，于是 Brier 只能拿 `interval_hit` 硬凑：
+
+```text
+预测区间 [480, 520]，命题「GDP > 420」，概率 80%，实际 450
+正确 Brier：(0.80 − 1)² = 0.04
+错用区间：  (0.80 − 0)² = 0.64     ← 凭空多出 0.6 的"过度自信"
+```
+
+**做法**：引入结构化评分命题 `scored_event`：
+
+| type | 结构 | 判定 |
+|---|---|---|
+| `interval` | `{low, high}` | `low <= actual <= high` |
+| `threshold` | `{op, value}`，`op ∈ > >= < <=` | 按运算符比较 |
+| `direction` | `{direction}`，`∈ up down flat` | 相对 `base_value` |
+
+`evaluate_scored_event()` 返回 `True / False / None`。**`None` 与 `False` 必须区分**
+（没有结果、命题不完整、方向命题缺基期 → `None`），Brier 只在可判定时出数。
+
+**四个连带的规则**：
+
+1. 有 `probability` 无 `scored_event` → `PROB_SCORED_EVENT_MISSING`（BLOCK）。
+   不补这个闸门，`scored_event` 就只是装饰品。
+2. 结构非法 → `PROB_SCORED_EVENT_INVALID`（BLOCK）。
+3. 每个指标**只允许一个** primary `scored_event`；传成多元素列表 →
+   `PROB_SCORED_EVENT_MULTIPLE`（BLOCK）。多个命题要拆成多个指标。
+   （备选的 `scored_predictions[]` 方案未采用：会让"每个指标的裁决"变成"每 N 个命题的裁决"，
+   与逐指标复盘模型冲突。）
+4. 预测区间与评分命题**允许不同，但分开输出**：`interval_hit` 与 `scored_event_hit`
+   各自独立。裁决与命中计数用 `outcome_hit = scored_event_hit ?? interval_hit` ——
+   **评价的对象必须是你真正下的注**。
+
+变异测试 **E**（复盘退回只读 `actual`）与 **F**（Brier 退回 `interval_hit`）
+分别证明 Test 19/23 与 Test 20/23 会转红。
+
+### 4.11 揭晓目标期校验（v0.2.3）
+
+第 3 类揭晓陷阱（期间错位）在 v0.2.2 只覆盖了一半：检查的是
+`actual_period == base_period`（取错成基期），**完全没比对 `forecast_to`**。
+于是拿 2012 年公报的数字结算 2013 年的预测，一路畅通。
+
+**做法**：`period_matches_forecast_target(actual_period_end, forecast_to)`；
+不一致 → `REVEAL_TARGET_PERIOD_MISMATCH`（BLOCK）。
+两端都是完整日期时要求同日；只写年份（如「2013」）退化为同年比较，旧档案仍兼容。
+由 `test-22` 三个 step 覆盖。
 
 ---
 
@@ -213,6 +266,14 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
    "统计公报""年报"等词，措辞差异可能漏判，故设为 WARN 而非 BLOCK。
 10. **修订状态可能无法确定**（v0.2.2）。若用户不知道结果是否被修订过，只能记 `"unknown"`，
     命中判定按现行值处理，并在档案中标注"未来修订可能导致结论变化"。
+11. **`scored_event` 每指标只允许一个 primary 命题**（v0.2.3）。用户一次押了两件事时，
+    须拆成两个指标。本版不做 `scored_predictions[]`（见 4.10 第 3 条的理由）。
+12. **旧档案的裸 `actual` 无法做目标期校验**（v0.2.3）。只有数值、没有 `actual_value` /
+    `actual_period_end` 的历史记录，期间一致性无从核对，只能报 `REVEAL_FIELD_MISSING` 并
+    在档案中标注"该次命中判定未做期间校验"。
+13. **`outcome_hit` 在缺 `scored_event` 时会退回区间命中**（v0.2.3）。这是一种降级：
+    此时裁决评的是区间而非命题。该状态本身必然伴随 `PROB_SCORED_EVENT_MISSING` (BLOCK)，
+    即"已经被拦住的档案"，因此降级结果只用于复盘存档，不用于放行。
 
 ---
 
@@ -224,10 +285,12 @@ v0.2.2 中 test-12 还修了一处**时间逻辑自洽性**问题：此前它的
 python tests/run_regression.py --conversation
 ```
 
-期望：`18 tests`、`41/41 steps`（含 4 个对话级映射用例）、`REGRESSION_STATUS=PASS`。
+期望：`23 tests`、`57/57 steps`（含 4 个对话级映射用例）、`REGRESSION_STATUS=PASS`。
 
-> 只跑 `python tests/run_regression.py`（不加 `--conversation`）时为 18 tests / 33 steps，
+> 只跑 `python tests/run_regression.py`（不加 `--conversation`）时为 23 tests / 49 steps，
 > 因为对话用例仅在显式请求时加载。
+
+变异测试另跑：`python tests/mutation_check.py`（见附录 A）。
 
 ### 6.2 Markdown 链接检查
 
@@ -272,65 +335,33 @@ print('SHENMU_OUTCOME_RISK=', hits)"
 
 ---
 
-## 附录 A · 变异测试脚本
+## 附录 A · 变异测试
 
-用于证明回归套件不是空转。**必须在临时副本上执行，不得修改仓库文件。**
+用于证明回归套件不是空转：**故意破坏一处闸门，确认*预期的那几个*测试会转红。**
+若某个变异之后仍然全绿，说明那批测试没在真正检验它。
 
-```python
-#!/usr/bin/env python3
-"""变异测试：破坏闸门，确认回归套件会转红。"""
-import shutil, subprocess, sys, pathlib
+v0.2.3 起脚本随仓库分发（v0.2.2 时只在临时目录手工执行）：
 
-SRC = pathlib.Path(r"<本项目根目录>")
-PY = sys.executable
-TMP = pathlib.Path(__import__("tempfile").gettempdir())
-
-MUTATIONS = {
-    "A-disable-quant-check": (
-        'def check_quant(case) -> list[Finding]:\n    """定量检查：隐含 CAGR、定性定量一致性、极端增速。"""\n    out: list[Finding] = []\n',
-        'def check_quant(case) -> list[Finding]:\n    """MUTATED"""\n    return []\n',
-        ["test-02", "test-11"],
-    ),
-    "B-disable-firewall": (
-        'out.append(Finding("FIREWALL_CONTAMINATION", BLOCK, scope,',
-        'out.append(Finding("FIREWALL_CONTAMINATION_OFF", INFO, scope,',
-        ["test-07"],
-    ),
-    "C-force-process-clean": (
-        'clean = (not blocks) and (not case_fatal)',
-        'clean = True  # MUTATED',
-        ["test-08", "test-11"],
-    ),
-    "D-disable-publication-firewall": (
-        # 只关掉"所属期在截点内、但发布时间在截点后"这一分支，
-        # 让前视泄漏退化为普通污染 —— 专门证明 test-16 在守着这条判定
-        'elif period_end and period_end <= cutoff:',
-        'elif False:  # MUTATED',
-        ["test-16"],
-    ),
-}
-
-def run(name, old, new, expect_fail):
-    work = TMP / ("jt_mut_" + name)
-    shutil.rmtree(work, ignore_errors=True)
-    shutil.copytree(SRC, work)
-    tgt = work / "scripts" / "judge_checks.py"
-    src = tgt.read_text(encoding="utf-8")
-    if old not in src:
-        print(f"[{name}] SKIP 目标代码未匹配"); return False
-    tgt.write_text(src.replace(old, new), encoding="utf-8")
-    proc = subprocess.run([PY, str(work / "tests" / "run_regression.py")],
-                          capture_output=True, text=True, encoding="utf-8", cwd=str(work))
-    failed = [ln.split()[1] for ln in (proc.stdout or "").splitlines() if ln.startswith("FAIL ")]
-    ok = all(any(e in f for f in failed) for e in expect_fail)
-    print(f"[{name}] 期望转红={expect_fail} 实际={failed} --> {'CAUGHT' if ok else 'NOT CAUGHT'}")
-    return ok
-
-if __name__ == "__main__":
-    rs = [run(n, *v) for n, v in MUTATIONS.items()]
-    print(f"MUTATION_STATUS={'PASS' if all(rs) else 'FAIL'} ({sum(rs)}/{len(rs)})")
-    sys.exit(0 if all(rs) else 1)
+```bash
+python tests/mutation_check.py          # 从项目根目录运行
 ```
+
+**必须在临时副本上执行** —— 脚本自身已做到（复制到 `%TEMP%` 后改副本），
+不会触碰仓库文件。
+
+当前 6 项：
+
+| # | 变异 | 破坏点 | 期望转红 |
+|---|---|---|---|
+| A | `disable-quant-check` | `check_quant()` 直接返回空 | test-02、test-11 |
+| B | `disable-firewall` | `FIREWALL_CONTAMINATION` 降级为 INFO | test-07 |
+| C | `force-process-clean` | `clean = (not blocks) and (not case_fatal)` → `clean = True` | test-08、test-11 |
+| D | `disable-lookahead-firewall` | 关掉"所属期在截点内、但发布时间在截点后"这一分支 | test-16 |
+| E | `postmortem-legacy-field-only` | 复盘退回只读 `oc["actual"]`（v0.2.3 §1） | test-19、test-23 |
+| F | `brier-from-interval-hit` | Brier 退回用 `interval_hit`（v0.2.3 §3/§7） | test-20、test-23 |
+
+实测 **6/6 CAUGHT**。E / F 是新用例的"非空转证明"：
+它们分别对应本次修的两个 correctness bug，因此**必须**能把这批新测试打红。
 
 ---
 

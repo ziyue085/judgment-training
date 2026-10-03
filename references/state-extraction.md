@@ -140,8 +140,9 @@
 | `forecast_low` / `forecast_high` | 「大概 700 到 900」 | 区间两端 |
 | `center` / `forecast_point` | 「我押 800」 | 点估计。**区间优先**：3 年以上预测应给区间 |
 | `forecast_form` | 「我就要一个数」 | `"point"` / `"interval"` |
-| `probability` | 「大概八成把握」 | 0—1 的小数。口语"八成"→ `0.80` |
+| `probability` | 「大概八成把握」 | 0—1 的小数。口语"八成"→ `0.80`。**它绑定到 `scored_event`，不是绑定到预测区间** |
 | `proposition` | 「P(2013 年财政支出超过 60 亿)」 | **必须命题化**。用户只给"85%"→ `PROB_NO_PROPOSITION`（BLOCK） |
+| `scored_event` | 同上一行的句子 | **必须写**。概率到底在赌哪一件事，见 4.6。缺 → `PROB_SCORED_EVENT_MISSING`（BLOCK） |
 | `reasoning` | 「我是这么推的…」 | 推导过程，非空 |
 | `failure_conditions` | 「什么情况算我错了」 | 失效条件，非空 |
 | `counterargument` | 「反方会说…」 | 最强反方解释，非空 |
@@ -150,6 +151,64 @@
 
 规则层会用 `point_estimate()` 取单一数值用于比较：优先 `center` / `forecast_point`，
 否则区间中点。若 `probability` 缺失但有预测值 → `PROB_MISSING`（BLOCK）。
+
+### 4.6 概率命题与评分命题（v0.2.3 重点）
+
+一句话：**概率不是给"这个指标"的，是给"某一件具体的事"的。**
+那件具体的事就是 `scored_event`，它决定复盘时 Brier 分数评的是什么。
+
+抽取时把用户那句话拆成**三个独立字段**：
+
+| 字段 | 回答的问题 | 例 |
+|---|---|---|
+| `forecast_low` / `forecast_high` | 你觉得它**会落在哪一段** | `[480, 520]` |
+| `proposition` | 你嘴上说的**命题文字** | 「P(2013 年 GDP > 420 亿元)」 |
+| `probability` | 你对**那件事**有多少把握 | `0.80` |
+| `scored_event` | 上面那件事的**结构化形式** | `{"type": "threshold", "op": ">", "value": 420}` |
+
+三者**可以不一致，而且经常不一致**，这是合法的：
+
+```text
+「我估计落在 480 到 520 之间，不过我更确定它会超过 420，这个有八成把握。」
+  → forecast_low / forecast_high = 480 / 520
+  → proposition  = "P(2013 年 GDP > 420 亿元)"
+  → probability  = 0.80
+  → scored_event = {"type": "threshold", "op": ">", "value": 420}
+```
+
+此时区间与命题是两个承诺，**分开输出、分开评价**：
+`interval_hit` 看区间，`scored_event_hit` 看命题。允许出现
+`interval_hit=false` 而 `scored_event_hit=true`。
+
+`scored_event` 的三种类型：
+
+| type | 结构 | 什么时候用 | 例 |
+|---|---|---|---|
+| `interval` | `{"type":"interval","low":a,"high":b}` | 用户赌的是"落在区间内" | 「会落在 480—520」 |
+| `threshold` | `{"type":"threshold","op":">","value":x}` | 用户赌的是"超过/低于某个数" | 「会超过 420」 |
+| `direction` | `{"type":"direction","direction":"up"}` | 用户赌的是"比基期高/低/持平" | 「会比 2009 年高」 |
+
+`op` 取值：`>` / `>=` / `<` / `<=`。`direction` 取值：`up` / `down` / `flat`
+（相对 `base_value` 判定）。
+
+**抽取规则（按顺序）**：
+
+1. 用户明确说了命题 → 按命题文字写 `scored_event`，**不要**直接抄预测区间。
+2. 用户把概率直接挂在区间上（「这区间我有六成把握」）→
+   `scored_event = {"type":"interval", ...}`，与区间同值。
+3. 用户只给了一个点（「我押 800，六成把握」）→
+   `scored_event = {"type":"interval","low":800,"high":800}`。
+4. 用户说了"八成把握"但**没说赌什么** → `proposition` 与 `scored_event` **都保持缺席** →
+   `PROB_NO_PROPOSITION` + `PROB_SCORED_EVENT_MISSING` 双 BLOCK，教练据此提问。
+   **不要替用户编一个命题。**
+
+> **每个指标只允许一个 `scored_event`。** 用户一次押了两件事
+> （「既会超过 420，也会超过 500」）→ 拆成两个指标或让用户选一个，
+> 传成列表会报 `PROB_SCORED_EVENT_MULTIPLE`（BLOCK）。
+
+**评分时三态**：`evaluate_scored_event()` 返回 `True / False / None`。
+`None` 表示"判定不了"（没结果、命题不完整、方向命题缺基期），
+**与 `False`（明确没命中）严格区分**——`None` 时 Brier 不出数。
 
 ---
 
@@ -163,6 +222,7 @@
 | `actual_unit` | 「亿元」 | 单位 |
 | `actual_caliber` | 「按常住人口、当年价」 | 必须与 `base_caliber` 一致，否则 `REVEAL_CALIBER_MISMATCH`（BLOCK） |
 | `actual_period` | 「2013 全年」 | 与 `base_period` 相同 → `REVEAL_PERIOD_MISMATCH`（WARN） |
+| `actual_period_start` / `actual_period_end` | 「2013 年 1—12 月」「截止 2013-12-31」 | 结果所属期的起止。**期末必须等于 `forecast_to`**，否则 `REVEAL_TARGET_PERIOD_MISMATCH`（BLOCK） |
 | `source` | 「统计公报」/「年报」 | 城市优先统计公报/年鉴/官方数据库；企业优先年报/交易所/法定披露 |
 | `published_at` | 「2014 年 3 月公布」 | 缺 → WARN |
 | `revision_status` | 「后来又修订过」 | `initial` / `revised` / `final`。缺 → WARN |
@@ -171,6 +231,11 @@
 
 > 修订陷阱：**不得只留对预测有利的那个数**。
 > 当时公布值与后来修订值要同时保留。详见 `reveal-protocol.md`。
+
+> **时期陷阱（v0.2.3 新增）**：揭晓最隐蔽的错不是"值不对"，而是"值对错了年份"。
+> 预测到 2013 年底，却拿 2012 年公报的 620 去结算 —— 数字再准也没有意义。
+> 只写 `actual_period`（如「2013」）时按年比对；写了 `actual_period_end`
+> 则要求与 `forecast_to` 完全同日。
 
 ---
 
@@ -192,10 +257,21 @@
     且已标注 usable=false → FIREWALL_ISOLATED       (INFO)
 发布时间 ≤ 截点：
     用了旧字段 date/source_date → SOURCE_DATE_LEGACY_FIELD (INFO)
-发布时间缺失：
+发布时间缺失（v0.2.3 起分半处理）：
+    已隔离 usable=false            → SOURCE_DATE_UNKNOWN (INFO)    ← 不参与预测，只提示
     标注 available_at_cutoff=false → FIREWALL_LOOKAHEAD_LEAKAGE (BLOCK)
-    否则                          → SOURCE_DATE_UNKNOWN (WARN)
+    否则（正在使用）                → SOURCE_DATE_UNKNOWN (BLOCK)   ← v0.2.3 由 WARN 升级
+
+指标级基期值（v0.2.3 新增硬闸门）：
+    有 base_value 但无 base_published_at → BASE_PUBLICATION_UNKNOWN (BLOCK)
+    base_published_at > 截点            → FIREWALL_CONTAMINATION    (BLOCK)
 ```
+
+> **为什么"正在使用却没有发布时间"必须是 BLOCK**：只要它只是 WARN，用户就可以
+> 一路推进到锁定，"这条材料截点当天到底能不能拿到"从头到尾没人证明过。
+> 而已经隔离的材料（`usable: false`）本来就不参与预测，缺时间只提示不阻断 ——
+> 否则用户会为了不被卡住而伪造一个发布时间，反而更危险。
+> `base_value` 同理：**基期值是整条推导链的地基**，它拿不到，后面全塌。
 
 **典型泄漏例子**：截点 `2010-12-31`，用户用了「2010 年全年 GDP」。
 - `data_period_end = 2010-12-31` ≤ 截点 ✔ 看起来没问题
@@ -228,8 +304,10 @@
 - [ ] 用户提到的每个数字，单位是否已分离到 `*_unit`？
 - [ ] 涉及存量流量 / 量价分解的指标，三态字段是否**显式**给出了 `true`/`false`？
       还是被偷懒跳过了（→ 一律 BLOCK）？
-- [ ] 基期值是否有对应的 `base_published_at`？还是只有所属期？
-- [ ] 材料是否有 `published_at`，且 ≤ 截点？
+- [ ] 基期值是否有对应的 `base_published_at`？还是只有所属期？（缺 → BLOCK）
+- [ ] 材料是否有 `published_at`，且 ≤ 截点？**正在使用**的材料缺时间就是 BLOCK。
+- [ ] 给了 `probability` 的指标，是否都写清了 `scored_event`，而不是照抄预测区间？
+- [ ] 揭晓的 `actual_period_end` 是否等于 `forecast_to`？
 - [ ] 若走了替代推导路径，`alternative_mechanism` 是否写清？
 - [ ] 提交阶段四个字段（reasoning / failure_conditions / counterargument / missing_info）是否齐全？
 - [ ] 是否把"用户没提"错误地当成了"用户确认否"？

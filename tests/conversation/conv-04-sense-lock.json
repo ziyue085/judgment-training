@@ -116,6 +116,7 @@
             "center": 150,
             "probability": 0.8,
             "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "scored_event": {"type": "threshold", "op": ">", "value": 130},
             "reasoning": "按煤价与工业增加值弹性外推，煤价中枢上移",
             "failure_conditions": "煤价跌破 400 元/吨",
             "counterargument": "非煤产业占比低，收入随煤价同步下坠",

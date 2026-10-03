@@ -79,7 +79,9 @@ def run_step(step):
             "verdict": result["verdict"],
             "error_attribution": result["error_attribution"],
             "interval_hit": result["interval_hit"],
+            "scored_event_hit": result["scored_event_hit"],
             "indicator_verdicts": [r["verdict"] for r in result["indicator_results"]],
+            "indicator_results": result["indicator_results"],
             "case_summary_overall": result["case_summary"]["overall"],
             "outcome_status": result["case_summary"]["outcome_status"],
             "n_hit": result["case_summary"]["n_hit"],
@@ -168,6 +170,23 @@ def assert_step(step, findings, extra):
         got = extra.get("front_stage_codes") or []
         if len(got) > exp["max_front_stage"]:
             errs.append(f"前台条目 {len(got)} 条，超过上限 {exp['max_front_stage']}：{got}")
+
+    # v0.2.3：逐指标的精确断言（评分命题 / Brier 只能这样验，不能靠总体 verdict 猜）
+    #   "indicator_results": [{"indicator": "GDP", "interval_hit": false,
+    #                          "scored_event_hit": true, "brier": 0.04}]
+    # 只比较写出来的键，其余键不约束。
+    for want in exp.get("indicator_results") or []:
+        nm = want.get("indicator")
+        got_list = extra.get("indicator_results") or []
+        got = next((r for r in got_list if r.get("indicator") == nm), None)
+        if got is None:
+            errs.append(f"indicator_results 中找不到指标：{nm}")
+            continue
+        for k, v in want.items():
+            if k == "indicator":
+                continue
+            if got.get(k) != v:
+                errs.append(f"indicator_results[{nm}].{k} 期望 {v!r}，实际 {got.get(k)!r}")
 
     return errs
 

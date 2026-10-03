@@ -130,7 +130,9 @@
           "GATE_STOCK_FLOW_UNRESOLVED",
           "GATE_QUANTITY_PRICE_UNRESOLVED",
           "PROB_NO_PROPOSITION",
-          "LOCK_FIELD_MISSING"
+          "LOCK_FIELD_MISSING",
+          "BASE_PUBLICATION_UNKNOWN",
+          "PROB_SCORED_EVENT_MISSING"
         ],
         "must_warn_codes": [
           "PROB_UNIFORM",

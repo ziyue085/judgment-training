@@ -35,7 +35,8 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 |---|---|
 | 基期先于增速 | 基期未核实，"五年后达到 X"没有检验价值 |
 | 数字必须可推导 | 任何预测值都要能回答"这个数是怎么来的" |
-| 概率必须对应命题 | `P(2015 年 GDP ∈ [900,1100]) = 60%`，不是"GDP：60%" |
+| 概率必须对应命题 | `P(2015 年 GDP ∈ [900,1100]) = 60%`，不是"GDP：60%"；且要写清这个概率**绑定到哪一个命题**，复盘只评它 |
+| 四步评同一件事 | 预测、概率、揭晓、复盘必须落在同一个事件、同一个时期、同一个口径上 |
 | 区间优先于点 | 中心估计只是中枢，不是答案 |
 | 基准率约束叙事 | 个案故事必须与同类对象的常态分布对照 |
 | 过程与结果分开评价 | 结果正确 + 推理糟糕 ≠ 好预测<br>结果错误 + 推理合理 + 概率诚实 = 可能是好预测 |
@@ -180,9 +181,121 @@ python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
 python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json
 ```
 
-该夹具触发 **39 个 BLOCK + 8 个 WARN**，`lockable=NO` —— 即新版本必须在错误进入最终预测之前将其拦住。
+该夹具触发 **45 个 BLOCK + 6 个 WARN**，`lockable=NO` —— 即新版本必须在错误进入最终预测之前将其拦住。
+
+（v0.2.2 时为 39 BLOCK + 8 WARN；v0.2.3 把 2 条"基期公开时间不明"的 WARN 升级为 BLOCK，
+并新增 4 条"概率未绑定命题"，因此变多。）
 
 详见 [`examples/shenmu-2010-regression-case.md`](examples/shenmu-2010-regression-case.md)。
+
+---
+
+## 本版修复（v0.2.3）
+
+一次**正确性补丁**。不重构、不扩功能、不新增大段方法论。
+v0.2.2 让流程"跑得通"，v0.2.3 让四步真正评的是**同一个事件、同一个时期、同一个口径**。
+
+四个正确性问题都是同一类毛病的不同侧面：**评的不是你押的那件事。**
+
+**1）揭晓写进去，复盘读不到。** 揭晓记录的是 `actual_value`，`postmortem()` 却只读 `actual`。
+结果是揭晓明明成功，复盘却当成"没有结果"，裁决塌成 `OUTCOME_UNKNOWN`。
+现在主读 `actual_value`，`actual` 只作旧档案回退。
+
+**2）Brier 评错了事件。** 旧实现直接拿 `interval_hit` 代入 `(p − o)²`。
+看这个例子：
+
+```text
+预测区间 [480, 520]，命题「GDP > 420」，概率 80%，实际 450
+```
+
+区间没命中（450 ∉ [480,520]），但你押的命题命中了。旧算法给 Brier 打出
+`(0.8 − 0)² = 0.64`（看起来过度自信到离谱），正确值是 `(0.8 − 1)² = 0.04`。
+**差的这 0.6 不是你判断的问题，是算法评错了事件。**
+
+现在引入结构化评分命题 `scored_event`：
+
+```json
+"scored_event": {"type": "threshold", "op": ">", "value": 420}
+```
+
+`type` 可为 `interval` / `threshold` / `direction`。概率必须有 `scored_event`，
+缺失即 `PROB_SCORED_EVENT_MISSING`（BLOCK）。**预测区间与评分命题允许不同，
+但必须分开写、分开评** —— `interval_hit` 与 `scored_event_hit` 分别输出，
+可以合法地一假一真。
+
+**3）"截点当天能否拿到"从来没被证明。** 正在使用的材料若缺 `published_at`，
+旧版本只给一个 WARN；有基期值却没有它的公开时间，同样只是 WARN。
+两条现在都升级为 **BLOCK**（`SOURCE_DATE_UNKNOWN` / `BASE_PUBLICATION_UNKNOWN`）。
+被隔离（`usable: false`）的材料则相反：只提示，**不得阻断** ——
+否则用户会为了推进流程而去伪造一个发布时间。
+
+**4）揭晓不校验预测目标期。** 旧实现只比基期与结果期间，完全忽略 `forecast_to`。
+拿 2012 年的数字结算 2013 年的预测，照样通过。现在结果期末与目标期不一致即
+`REVEAL_TARGET_PERIOD_MISMATCH`（BLOCK），并引入 `actual_period_start` / `actual_period_end`
+（旧档案只写"2013"的年粒度写法仍兼容）。
+
+另外把裁决口径也对齐了：`verdict` 与命中计数改为跟随
+`outcome_hit = scored_event_hit ?? interval_hit`，让"评的"与"算分的"是同一个事件。
+
+---
+
+## 项目结构
+
+```text
+judgment-training/
+├─ SKILL.md                          主文件（精炼，4441 字符）
+├─ README.md
+├─ CHANGELOG.md
+├─ LICENSE
+├─ .gitignore
+├─ references/                       按需加载的方法论
+│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新 / 复盘六象限
+│  ├─ coaching-rules.md              职责边界 / 防火墙话术 / 越界场景 / 前台纪律
+│  ├─ probability-calibration.md     命题化 / 逻辑一致性 / 校准评分
+│  ├─ quantitative-forecasting.md    准入十查 / 分解族 / 隐含 CAGR / 基准率 / P0—P7
+│  ├─ prediction-record-template.md  档案 schema / 提交字段 / 多指标复盘模板
+│  ├─ state-extraction.md            自然语言 → 结构化状态映射（未检查 ≠ 已通过）
+│  └─ reveal-protocol.md             揭晓协议：来源层级 / 口径核验 / 统计修订 / 目标期
+├─ examples/
+│  ├─ example-session.md             一轮完整对话（虚构对象）
+│  └─ shenmu-2010-regression-case.md 失败案例与拦截映射
+├─ tests/
+│  ├─ test-cases.md                  23 个用例说明
+│  ├─ conversation-cases.md          4 个对话级映射用例说明
+│  ├─ regression-checklist.md        自动 + 变异 + 人工回归清单
+│  ├─ run_regression.py              测试运行器（含 --conversation）
+│  ├─ mutation_check.py              变异测试（A—F 六项，可一键复现）
+│  ├─ cases/*.json                   23 个可执行夹具
+│  └─ conversation/*.json            4 个自然语言映射用例
+├─ scripts/
+│  └─ judge_checks.py                确定性规则层
+└─ docs/
+   └─ design-notes.md                设计取舍与已知限制
+```
+
+---
+
+## 运行测试
+
+```bash
+python tests/run_regression.py                 # 23 tests / 57 steps
+python tests/run_regression.py --verbose       # 打印每步实际发现
+python tests/run_regression.py --conversation  # 追加 4 个对话级映射用例
+python tests/mutation_check.py                 # 变异测试：故意破坏闸门，确认测试转红
+```
+
+期望输出：
+
+```text
+tests: 23  steps: 57/57 passed  failed_tests: 0  (含对话映射 4 个)
+REGRESSION_STATUS=PASS
+```
+
+仅"全部通过"不构成证据。`tests/mutation_check.py` 会故意破坏六处闸门
+（禁用量化检查 / 禁用防火墙 / 强制过程干净 / 禁用前视泄漏判定 /
+复盘退回只读旧字段 / Brier 退回区间命中），确认*预期的那几个*测试会转红。
+当前 **6/6 被捕获** —— 若某个变异后仍然全绿，说明那批测试没在真正检验它。
+原理见 [`docs/design-notes.md`](docs/design-notes.md) 附录 A。
 
 ---
 
@@ -212,61 +325,7 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 **信息防火墙双层时间**——区分数据所属期与发布时间，新增 `FIREWALL_LOOKAHEAD_LEAKAGE`
 拦截"所属期在截点前、但截点当天还没公布"的隐蔽前视泄漏。
 
-前台呈现也改为**优先级 P0—P7**：一次只说最多 3 条最关键发现，不再把 39 条 BLOCK 摊给用户。
-
----
-
-## 项目结构
-
-```text
-judgment-training/
-├─ SKILL.md                          主文件（精炼，4130 字符）
-├─ README.md
-├─ CHANGELOG.md
-├─ LICENSE
-├─ .gitignore
-├─ references/                       按需加载的方法论
-│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新 / 复盘六象限
-│  ├─ coaching-rules.md              职责边界 / 防火墙话术 / 越界场景 / 前台纪律
-│  ├─ probability-calibration.md     命题化 / 逻辑一致性 / 校准评分
-│  ├─ quantitative-forecasting.md    准入十查 / 分解族 / 隐含 CAGR / 基准率 / P0—P7
-│  ├─ prediction-record-template.md  档案 schema / 提交字段 / 多指标复盘模板
-│  ├─ state-extraction.md            自然语言 → 结构化状态映射（未检查 ≠ 已通过）
-│  └─ reveal-protocol.md             揭晓协议：来源层级 / 口径核验 / 统计修订
-├─ examples/
-│  ├─ example-session.md             一轮完整对话（虚构对象）
-│  └─ shenmu-2010-regression-case.md 失败案例与拦截映射
-├─ tests/
-│  ├─ test-cases.md                  18 个用例说明
-│  ├─ conversation-cases.md          4 个对话级映射用例说明
-│  ├─ regression-checklist.md        自动 + 变异 + 人工回归清单
-│  ├─ run_regression.py              测试运行器（含 --conversation）
-│  ├─ cases/*.json                   18 个可执行夹具
-│  └─ conversation/*.json            4 个自然语言映射用例
-├─ scripts/
-│  └─ judge_checks.py                确定性规则层
-└─ docs/
-   └─ design-notes.md                设计取舍与已知限制
-```
-
----
-
-## 运行测试
-
-```bash
-python tests/run_regression.py                 # 18 tests / 41 steps
-python tests/run_regression.py --verbose       # 打印每步实际发现
-python tests/run_regression.py --conversation  # 追加 4 个对话级映射用例
-```
-
-期望输出：
-
-```text
-tests: 18  steps: 41/41 passed  failed_tests: 0  (含对话映射 4 个)
-REGRESSION_STATUS=PASS
-```
-
-仅"全部通过"不构成证据。`tests/regression-checklist.md` 的 B 节要求做**变异测试**：故意破坏四处闸门，确认测试会转红（4/4 被捕获）。方法见 [`docs/design-notes.md`](docs/design-notes.md) 附录 A。
+前台呈现也改为**优先级 P0—P7**：一次只说最多 3 条最关键发现，不再把数十条 BLOCK 摊给用户。
 
 ---
 
@@ -278,6 +337,9 @@ REGRESSION_STATUS=PASS
 - 自然语言抽取依赖教练判断：脚本只能断言"抽取后的字段"是否符合规则，
   `state-extraction.md` 提供的是**规范**而非自动解析器
 - 来源层级判定基于关键词匹配，措辞差异可能漏判（故为 WARN 而非 BLOCK）
+- `scored_event` 每个指标只允许**一个** primary 命题；多个命题须拆成多个指标
+  （本版不做 `scored_predictions[]`）
+- 结果记录若只有裸数值 `actual` 而无 `actual_value`，目标期校验无从进行
 - 持久化依赖运行环境；档案默认写用户工作区
 
 完整列表见 [`docs/design-notes.md`](docs/design-notes.md) 第五节。

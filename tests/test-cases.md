@@ -3,11 +3,18 @@
 > 每个用例都对应 `tests/cases/` 下的一个可执行夹具。全部由 `tests/run_regression.py` 断言。
 
 ```bash
-python tests/run_regression.py            # 全部 JSON 夹具
+python tests/run_regression.py            # 全部 JSON 夹具（23 tests / 49 steps）
 python tests/run_regression.py --verbose  # 打印每个 step 的实际发现
-python tests/run_regression.py --conversation   # 追加对话级映射用例
+python tests/run_regression.py --conversation   # 追加 4 个对话级映射用例（57 steps）
+python tests/mutation_check.py            # 变异测试 A—F：确认测试不是空转
 python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json
 ```
+
+> v0.2.3 起，凡带 `probability` 的指标夹具都显式写出 `scored_event`，
+> 其取值**按各夹具自己的 `proposition` 解析**，不是照抄预测区间 ——
+> 详见用例 20 与 `references/state-extraction.md` 4.6 节。
+> 断言能力也扩了：`expect.indicator_results` 可逐指标核对
+> `interval_hit` / `scored_event_hit` / `brier` / `actual_value`。
 
 ---
 
@@ -33,6 +40,11 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 | 16 | 发布时间晚于截点 | `test-16-publication-after-cutoff.json` | 前视泄漏 / 污染 / 已隔离 三种情形分开 |
 | 17 | 历史不足与替代路径 | `test-17-limited-history-alt-mechanism.json` | 有机制降级 WARN，无机制仍 BLOCK |
 | 18 | 三态字段映射 | `test-18-tri-state-mapping.json` | `true`/`false`/`"unknown"`/缺席 四种处置 |
+| 19 | 揭晓 → 复盘贯通 | `test-19-reveal-postmortem-integration.json` | 揭晓写的 `actual_value` 复盘真能读到（v0.2.3） |
+| 20 | Brier 事件绑定 | `test-20-brier-event-binding.json` | 概率评的是 `scored_event`，不是区间（v0.2.3） |
+| 21 | 发布时间不明分半 | `test-21-publication-unknown-block.json` | 在用材料 BLOCK，已隔离材料不 BLOCK（v0.2.3） |
+| 22 | 揭晓目标期校验 | `test-22-reveal-target-period.json` | 期末 ≠ `forecast_to` → BLOCK（v0.2.3） |
+| 23 | 全链路贯通 | `test-23-full-pipeline-integration.json` | 草稿→可锁→揭晓→复盘四项同源（v0.2.3） |
 
 ### 对话级用例（`tests/conversation/`，需 `--conversation`）
 
@@ -165,6 +177,12 @@ GDP > 900：60%
 
 见 `examples/shenmu-2010-regression-case.md`。夹具逐条复现第一轮的失败形态，要求全部被拦。
 
+v0.2.2 时该夹具触发 39 BLOCK + 8 WARN；v0.2.3 起为 **45 BLOCK + 6 WARN**：
+2 条"基期公开时间不明"由 WARN 升级为 `BASE_PUBLICATION_UNKNOWN`(BLOCK)，
+新增 4 条 `PROB_SCORED_EVENT_MISSING`(BLOCK)。
+**变多不是变严格，是原来漏掉了两类缺陷**：这轮失败里，基期值的公开时间从没被记录过，
+四个预测的概率也都没有绑定到任何命题。
+
 ---
 
 ## 用例 12 · 反向对照（防误报）
@@ -252,3 +270,83 @@ GDP > 900：60%
 | 3 | `false` | 通过，`lockable=YES` |
 
 **核心原则**：未检查 ≠ 已通过。字段缺席不得被默认成 `false`。
+
+---
+
+## 用例 19 · 揭晓 → 复盘字段贯通
+
+**要修的 bug**：揭晓写的是 `actual_value`，`postmortem()` 却只读 `actual`。
+于是"揭晓成功"和"复盘当没揭晓"同时成立，裁决塌成 `OUTCOME_UNKNOWN`。
+
+| step | 模式 | 期望 |
+|---|---|---|
+| 1 | `reveal` | 字段/口径/来源/期间全过 → `REVEAL_OK` |
+| 2 | `postmortem` | `actual_value=800`、`interval_hit=true`、`verdict=PROCESS_GOOD_OUTCOME_HIT`、`outcome_status=REVEALED` |
+
+**关键断言**：`indicator_results[0].actual_value == 800`。
+**反证**：变异 E（复盘退回只读 `actual`）会让本用例转红。
+**意义**：这条链一旦断，后面所有复盘结论都建立在"没有结果"之上。
+
+---
+
+## 用例 20 · Brier 必须绑定评分命题
+
+三种形态，核心是 Case A。
+
+| step | 区间 | 评分命题 | 概率 | 实际 | 期望 |
+|---|---|---|---|---|---|
+| A | [480,520] | `threshold > 420` | 0.80 | 450 | `interval_hit=false`、`scored_event_hit=true`、**`brier=0.04`** |
+| B | [480,520] | `interval [480,520]` | 0.60 | 500 | `interval_hit=true`、`scored_event_hit=true`、`brier=0.16` |
+| C | [480,520] | **缺失** | 0.70 | — | `PROB_SCORED_EVENT_MISSING`（BLOCK） |
+
+**Case A 是全部要点**：区间没命中但命题命中了，Brier 的正确值是 `(0.8−1)²=0.04`，
+若是 `0.64` 说明又退回用 `interval_hit` 评分了。
+**反证**：变异 F 会让本用例转红。
+**顺带**：Case A 的 `verdict` 也是 `PROCESS_GOOD_OUTCOME_HIT` ——
+裁决评的同样是命题，不是你顺口给的区间。
+
+---
+
+## 用例 21 · 发布时间不明：分半处理
+
+| step | 情形 | 期望 |
+|---|---|---|
+| A | 在用材料（`usable != false`）无 `published_at` | `SOURCE_DATE_UNKNOWN`（**BLOCK**） |
+| B | 已隔离材料（`usable: false`）无 `published_at` | `SOURCE_DATE_UNKNOWN`（INFO），`lockable=YES` |
+| C | 有 `base_value` 但无 `base_published_at` | `BASE_PUBLICATION_UNKNOWN`（**BLOCK**） |
+| D | C 补齐 `base_published_at` 后 | 两个码都不出现，`lockable=YES` |
+
+**为什么必须分半**：如果只做"缺时间就 BLOCK"，用户会为了推进流程伪造一个发布时间 ——
+那比缺时间更危险。已隔离的材料本来就不参与预测，提示即可。
+反过来，**正在使用**的材料缺时间只给 WARN 就等于永不设防。
+
+---
+
+## 用例 22 · 揭晓目标期校验
+
+预测目标期固定为 `2013-12-31`。
+
+| step | 结果期间 | 期望 |
+|---|---|---|
+| A | `actual_period_end = 2013-12-31` | `REVEAL_OK` |
+| B | `actual_period_end = 2012-12-31` | `REVEAL_TARGET_PERIOD_MISMATCH`（**BLOCK**） |
+| C | 旧档案写法 `actual_period = "2013"`（无 `_end`） | `REVEAL_OK`（年粒度兼容） |
+
+**核心原则**：值对错了年份，命中判定整份作废 —— 620 是 2012 年的数，
+它和"2013 年预测"的匹配程度没有意义。
+
+---
+
+## 用例 23 · 全链路贯通
+
+把 `CASE→ADMISSION→FORECAST→LOCKABLE→REVEAL→POSTMORTEM` 串起来跑一遍。
+
+| step | 模式 | 期望 |
+|---|---|---|
+| 1 | `case` | 只有数字没有推导 → `LOCK_FIELD_MISSING`，`lockable=false` |
+| 2 | `case` | 补齐四字段 → `ADMISSION_OK`，`lockable=true` |
+| 3 | `reveal` | 口径 / 来源 / 期间全过 → `REVEAL_OK` |
+| 4 | `postmortem` | `interval_hit=false`、`scored_event_hit=true`、`brier=0.04`、`verdict=PROCESS_GOOD_OUTCOME_HIT`、`outcome_status=REVEALED` |
+
+刻意选了"区间没命中、命题命中"的形态：**四项结论由同一份 `actual_value` 派生**，
+任何一环断掉都会整体失败。变异 E 与 F 都会让本用例转红。

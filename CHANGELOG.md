@@ -4,6 +4,69 @@
 
 ---
 
+## [0.2.3] — 2026-10-03
+
+正确性补丁（correctness patch）。**不重构、不扩功能、不新增大段方法论。**
+v0.2.2 让流程"跑得通"，v0.2.3 让预测、概率、揭晓、复盘四步真正落在
+**同一个事件、同一个时期、同一个口径**上。
+
+### Fixed
+
+- **揭晓 → 复盘字段断裂**：揭晓写入的是 `actual_value`，`postmortem()` 却只读 `actual`，
+  于是"揭晓成功、复盘却当没揭晓"，裁决塌成 `OUTCOME_UNKNOWN`。
+  现主读 `oc["actual_value"]`，`oc["actual"]` 仅作旧档案回退
+- **Brier 评错了事件**：旧实现以 `interval_hit` 代入 `(p − o)²`，等于拿用户**没赌过**的
+  预测区间给概率打分。现引入结构化评分命题 `scored_event`，Brier 只在
+  `probability` 与 `scored_event_hit` 都可得时计算
+- **`SOURCE_DATE_UNKNOWN` 是纸老虎**：正在使用的材料缺 `published_at` 只报 WARN，
+  "截点当天能否获得"从未被证明。现升级为 **BLOCK**；已被隔离（`usable: false`）的
+  材料只提示、**不得阻断**（否则用户会为了推进流程而去伪造发布时间）
+- **基期值的公开时间无人过问**：有 `base_value` 却无 `base_published_at` 只报 WARN。
+  现新增 `BASE_PUBLICATION_UNKNOWN`(BLOCK)
+- **揭晓不校验预测目标期**：旧实现只比 `base_period == actual_period`，忽略 `forecast_to`——
+  拿 2012 年的数字结算 2013 年的预测照样通过。现新增 `period_matches_forecast_target()`
+  与 `REVEAL_TARGET_PERIOD_MISMATCH`(BLOCK)，并引入 `actual_period_start` / `actual_period_end`
+  （旧档案只写"2013"的年粒度写法仍兼容）
+
+### Added
+
+- **`scored_event` 结构化评分命题**：`{type: interval | threshold | direction}`；
+  `evaluate_scored_event()` 返回 `True / False / None` 三态（**None ≠ False**：未知不等于未命中）
+- 新增发现码：`PROB_SCORED_EVENT_MISSING`(BLOCK) / `PROB_SCORED_EVENT_INVALID`(BLOCK) /
+  `PROB_SCORED_EVENT_MULTIPLE`(BLOCK) / `BASE_PUBLICATION_UNKNOWN`(BLOCK) /
+  `REVEAL_TARGET_PERIOD_MISMATCH`(BLOCK)
+- 复盘逐指标新增 `forecast_range` / `scored_event` / `scored_event_hit` / `outcome_hit` /
+  `actual_value`；`case_summary` 新增 `n_interval_hit` / `n_interval_miss`（区间视角另计）
+- **Test 19—23**：揭晓→复盘字段贯通、Brier 事件绑定、发布时间不明分半处理、
+  揭晓目标期校验、全链路贯通（草稿→可锁→揭晓→复盘）
+- **`tests/mutation_check.py`**：变异套件纳入仓库（A—F 六项），一键复现"测试不是空转"
+- 变异 **E**（复盘退回只读 `actual` → Test 19 / 23 转红）与 **F**（Brier 退回 `interval_hit`
+  → Test 20 / 23 转红）
+
+### Changed
+
+- **裁决与 Brier 同源**：`verdict` 与命中计数改为跟随
+  `outcome_hit = scored_event_hit if not None else interval_hit`，
+  让"评的"与"算分的"是同一个事件；`interval_hit` 仍然独立输出
+  （可合法出现 `interval_hit=false` / `scored_event_hit=true`）
+- 测试运行器新增 `expect.indicator_results` 逐指标断言——Brier 与评分命题命中只能这样验，
+  不能靠总体 verdict 猜
+- 既有夹具按各自的 `proposition` 解析补齐 **39 处 `scored_event`** + **4 处 `base_published_at`**，
+  **零期望放宽**（18 tests / 41 steps 全绿）
+- 神木回归夹具新增两条应报缺陷：`BASE_PUBLICATION_UNKNOWN`、`PROB_SCORED_EVENT_MISSING`
+- 测试规模：18 tests / 41 steps → **23 tests / 57 steps**；变异 4 → **6 项**
+- 神木案例发现数：39 BLOCK + 8 WARN → **45 BLOCK + 6 WARN**
+  （2 条 WARN 升级为 BLOCK，新增 4 条 BLOCK）
+
+### Known Limitations
+
+- 每个指标只允许**一个** primary `scored_event`；多个命题需拆成多个指标
+  （本版不做 `scored_predictions[]`，规则见 `docs/design-notes.md`）
+- 若结果记录只有裸数值 `actual` 而无 `actual_value`，目标期校验无从进行，
+  按 `REVEAL_FIELD_MISSING` 处理
+
+---
+
 ## [0.2.2] — 2026-10-03
 
 定向可靠性修复（bugfix / reliability release）。**不重构架构、不新增 roadmap 大功能**。
@@ -108,7 +171,7 @@
 - **Postmortem Four-Quadrant（复盘四象限）** — `PROCESS_GOOD_OUTCOME_HIT` / `PROCESS_GOOD_OUTCOME_MISS` / `LUCKY_ACCURATE` / `PROCESS_DEFECTIVE_OUTCOME_MISS`；错误归因九分类覆盖 BLOCK 与 WARN 两级
 - **Deterministic Gate Engine** — `scripts/judge_checks.py`，将铁律实现为可执行规则，含教练回复越界守卫（抢答 / 剧透 / 问题过多 / 夸奖 / 分析师口吻）
 - **Regression Tests** — 12 个可执行夹具、20 个步骤，另含反向对照用例防止"一律拦截"通过测试
-- **Shenmu Case** — 神木 2010 失败案例作为回归基线；该夹具触发 36 BLOCK + 6 WARN（v0.2.2 起为 39 BLOCK + 8 WARN）
+- **Shenmu Case** — 神木 2010 失败案例作为回归基线；该夹具触发 36 BLOCK + 6 WARN（v0.2.2 起为 39 BLOCK + 8 WARN，v0.2.3 起为 45 BLOCK + 6 WARN）
 - **State Machine** — 11 状态流程（`INTAKE` → `ARCHIVED`），各状态有明确出口条件，禁止跳跃
 - **Difficulty Levels** — Level 1/2/3 分级与升级判据
 - **Archive Schema** — `references/prediction-record-template.md` 定义 YAML 档案、最终提交字段、更新留痕、复盘模板、判断原则库格式

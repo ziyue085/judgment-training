@@ -68,11 +68,34 @@
   - **时期口径**：全年 / 年末 / 年平均
   - **企业口径**：合并报表 / 母公司报表；归母净利润 / 净利润
 
-期间核验：`actual_period` 与 `base_period` 相同 → `REVEAL_PERIOD_MISMATCH`（WARN），
-大概率取错了时点。
+期间核验分两层（v0.2.3 补齐第二层）：
+
+1. `actual_period` 与 `base_period` 相同 → `REVEAL_PERIOD_MISMATCH`（WARN），
+   大概率把基期值当成了结果值。
+2. **结果期末必须等于 `forecast_to`** —— 这是 v0.2.3 新增的硬闸门：
+   不一致 → `REVEAL_TARGET_PERIOD_MISMATCH`（**BLOCK**）。
+
+第 2 条此前完全缺失，后果很实际：
+
+```text
+预测目标期：2013-12-31
+结果记录：实际 620（2012 年公报）        ← 期间完全对不上
+```
+
+620 与预测的匹配程度毫无意义 —— 它是**另一年**的数。数字再准，评的也不是同一件事。
+校验用 `period_matches_forecast_target(actual_period_end, forecast_to)`：
+两端都是完整日期时要求同日；只写年份（如「2013」）则退化为同年比较，旧档案仍兼容。
 
 逐字段必填项（缺一即 BLOCK）：`actual_value` / `actual_unit` / `actual_caliber` /
 `actual_period` / `source`。
+
+建议同时给出 `actual_period_start` / `actual_period_end`：
+
+| 字段 | 作用 | 例 |
+|---|---|---|
+| `actual_period` | 人类可读的期间描述 | `"2013"` |
+| `actual_period_start` | 区间起点（可选） | `"2013-01-01"` |
+| `actual_period_end` | **区间终点，与 `forecast_to` 比对** | `"2013-12-31"` |
 
 > 用户只说"实际是 812"（裸数值）→ `REVEAL_RECORD_MINIMAL`（WARN）。
 > 若当前阶段已是 `REVEAL`，则按正式揭晓处理，逐字段核验，缺哪个报哪个。
@@ -140,6 +163,7 @@
       "actual_unit": "亿元",
       "actual_caliber": "常住人口口径、当年价、全市",
       "actual_period": "2013",
+      "actual_period_end": "2013-12-31",
       "source": "神木县 2013 年国民经济和社会发展统计公报",
       "published_at": "2014-03",
       "revision_status": "revised",
@@ -149,6 +173,11 @@
   }
 }
 ```
+
+> **`actual_value` 才是复盘读的那个字段。** 旧档案里可能只有裸的 `actual`，
+> 复盘会把它当兼容回退读进来；但新记录一律写 `actual_value`。
+> v0.2.3 修的就是"揭晓写 `actual_value`、复盘只读 `actual`"导致的
+> 「揭晓成功、复盘却当没揭晓」。
 
 ---
 
@@ -171,6 +200,8 @@
 |---|---|---|
 | 用百科数字对答案 | 值可能失真，命中判定不可信 | 回到统计公报 / 年报一级来源 |
 | 口径不一致照算命中 | 命中判定无效 | 先统一口径；不统一则作废该次判定 |
+| 结果期与预测目标期不一致照算命中 | 拿别的年份结算，命中判定无效 | 先对齐 `actual_period_end` 与 `forecast_to` |
+| 揭晓写 `actual_value`、复盘读 `actual` | 揭晓成功但复盘当没揭晓 | 复盘主读 `actual_value`，`actual` 仅作旧档回退 |
 | 只留修订后的值 | 前视/美化复盘 | 同时保留 `as_reported_then` 与 `latest_revised` |
 | 只留当时公布值 | 忽略后续修订带来的结论变化 | 两个都报 |
 | 揭晓时顺带剧透下一段 | 破坏后续训练 | 严格止于预测期限 |

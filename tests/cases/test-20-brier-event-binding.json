@@ -1,0 +1,222 @@
+{
+  "id": "test-20-brier-event-binding",
+  "title": "Test 20 · Brier 必须绑定「概率真正押的那个命题」",
+  "scenario": "v0.2.3 修复：旧实现拿 interval_hit 代入 Brier，等于用一个用户没赌过的区间给概率打分。Case A 是最容易被误判的形态：区间没命中（450 ∉ [480,520]），但用户押的命题命中了（450 > 420）——Brier 必须是 (0.8-1)²=0.04，绝不能是 (0.8-0)²=0.64。",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 200},
+              {"period": "2007", "value": 240},
+              {"period": "2008", "value": 270},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.8,
+            "proposition": "P(2013 年 GDP > 420 亿元)",
+            "scored_event": {"type": "threshold", "op": ">", "value": 420},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ],
+        "outcomes": {
+          "GDP": {
+            "actual_value": 450,
+            "actual_unit": "亿元",
+            "actual_caliber": "全县、当年价",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "某县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-04-10",
+            "revision_status": "initial"
+          }
+        }
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_HIT",
+        "outcome_status": "REVEALED",
+        "n_hit": 1,
+        "n_miss": 0,
+        "n_unknown": 0,
+        "indicator_results": [
+          {
+            "indicator": "GDP",
+            "actual_value": 450,
+            "interval_hit": false,
+            "scored_event_hit": true,
+            "outcome_hit": true,
+            "brier": 0.04
+          }
+        ]
+      }
+    },
+    {
+      "mode": "postmortem",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 200},
+              {"period": "2007", "value": 240},
+              {"period": "2008", "value": 270},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP ∈ [480,520] 亿元) = 60%",
+            "scored_event": {"type": "interval", "low": 480, "high": 520},
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ],
+        "outcomes": {
+          "GDP": {
+            "actual_value": 500,
+            "actual_unit": "亿元",
+            "actual_caliber": "全县、当年价",
+            "actual_period": "2013",
+            "actual_period_end": "2013-12-31",
+            "source": "某县 2013 年国民经济和社会发展统计公报",
+            "published_at": "2014-04-10",
+            "revision_status": "initial"
+          }
+        }
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_HIT",
+        "outcome_status": "REVEALED",
+        "indicator_results": [
+          {
+            "indicator": "GDP",
+            "actual_value": 500,
+            "interval_hit": true,
+            "scored_event_hit": true,
+            "brier": 0.16
+          }
+        ]
+      }
+    },
+    {
+      "mode": "case",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "某县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "GDP",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 200},
+              {"period": "2007", "value": 240},
+              {"period": "2008", "value": 270},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["产能上限"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.7,
+            "proposition": "P(2013 年 GDP > 420 亿元)",
+            "reasoning": "按煤价与产能弹性外推",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，增速随煤价同步回落",
+            "missing_info": "非煤产业增加值占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["PROB_SCORED_EVENT_MISSING"],
+        "must_not_codes": ["PROB_NO_PROPOSITION"],
+        "must_front_stage_codes": ["PROB_SCORED_EVENT_MISSING"],
+        "lockable": false
+      }
+    }
+  ]
+}

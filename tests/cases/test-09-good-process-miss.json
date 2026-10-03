@@ -40,6 +40,7 @@
             "center": 900,
             "probability": 0.55,
             "proposition": "P(2015年GDP ∈ [800,1000] 亿元) = 55%",
+            "scored_event": {"type": "interval", "low": 800, "high": 1000},
             "reasoning": "基期 600，历史三年增速区间 15%—21%，取中性 8%—11% 外推。",
             "failure_conditions": "若煤炭价格年均跌幅超过 10%，则本区间失效。",
             "counterargument": "资源型城市的收入弹性高于常规城市，中性假设可能仍偏乐观。",
