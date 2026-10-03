@@ -11,7 +11,9 @@
 | Skill 目录名 | `judgment-training` | ASCII，规避跨平台编码问题；避免中文路径在 Windows 沙箱与 Git 中的干扰 |
 | 显示名 | 判断力训练 | 用户指定 |
 | version | `0.2.0` | 相对 GPT 原始规格中的"历史预测与判断训练教练"属重大结构升级；0.x 表示方法论仍在迭代 |
-| 建议仓库名 | `judgment-training` | 与技能目录一致。**与任务书中的 `history-prediction-coach` 不同**——因用户明确改名为"判断力训练"。若希望保留旧名，改仓库名即可，不影响内部结构 |
+| 仓库名 | `judgment-training` | 与技能目录一致。任务书中曾建议 `history-prediction-coach`，因用户明确改名为"判断力训练"而采用现名 |
+
+> **实操提示**：GitHub 网页创建仓库时，中文仓库名会被 sanitize 成短横线（实测"判断力训练"变成了字面 `---`）。**新建仓库请直接用 ASCII 名**，中文名只用于 README、描述与 `SKILL.md` 的显示名。
 
 ---
 

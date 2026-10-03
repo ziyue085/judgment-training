@@ -59,7 +59,7 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 作为用户级 Skill 使用：
 
 ```bash
-git clone <repo-url> ~/.workbuddy/skills/judgment-training
+git clone https://github.com/ziyue085/judgment-training.git ~/.workbuddy/skills/judgment-training
 ```
 
 或把整个目录复制到 `~/.workbuddy/skills/judgment-training/`。
