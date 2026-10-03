@@ -43,7 +43,7 @@
   新增 `FIREWALL_LOOKAHEAD_LEAKAGE`（BLOCK）——最隐蔽的前视泄漏：所属期在截点前，
   但截点当天根本还没公布（如截点 2010-12-31 使用"2010 全年 GDP"）
 - **前台呈现优先级 P0—P7**：`sort_findings()` + `front_stage()`，让"一次只处理最关键 1—3 条"
-  有确定实现；神木案例不再把 36 条 BLOCK 平铺给用户
+  有确定实现；神木案例不再把 39 条 BLOCK 平铺给用户
 - **`reveal` CLI 子命令**与 `check_reveal()` 检查器
 - **对话级测试**：`tests/conversation/`（4 个自然语言用例）+ `tests/conversation-cases.md`，
   运行器新增 `--conversation` 与 `extract` / `extract_absent` 映射断言
@@ -108,7 +108,7 @@
 - **Postmortem Four-Quadrant（复盘四象限）** — `PROCESS_GOOD_OUTCOME_HIT` / `PROCESS_GOOD_OUTCOME_MISS` / `LUCKY_ACCURATE` / `PROCESS_DEFECTIVE_OUTCOME_MISS`；错误归因九分类覆盖 BLOCK 与 WARN 两级
 - **Deterministic Gate Engine** — `scripts/judge_checks.py`，将铁律实现为可执行规则，含教练回复越界守卫（抢答 / 剧透 / 问题过多 / 夸奖 / 分析师口吻）
 - **Regression Tests** — 12 个可执行夹具、20 个步骤，另含反向对照用例防止"一律拦截"通过测试
-- **Shenmu Case** — 神木 2010 失败案例作为回归基线；该夹具触发 36 BLOCK + 6 WARN
+- **Shenmu Case** — 神木 2010 失败案例作为回归基线；该夹具触发 36 BLOCK + 6 WARN（v0.2.2 起为 39 BLOCK + 8 WARN）
 - **State Machine** — 11 状态流程（`INTAKE` → `ARCHIVED`），各状态有明确出口条件，禁止跳跃
 - **Difficulty Levels** — Level 1/2/3 分级与升级判据
 - **Archive Schema** — `references/prediction-record-template.md` 定义 YAML 档案、最终提交字段、更新留痕、复盘模板、判断原则库格式

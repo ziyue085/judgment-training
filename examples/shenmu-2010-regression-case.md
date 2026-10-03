@@ -49,21 +49,31 @@
 | 9 储量当产量 | `GATE_STOCK_FLOW_UNRESOLVED` | BLOCK | 储量是存量，产量是流量。中间那几步靠什么支撑？ |
 | 10 未拆量价 | `GATE_QUANTITY_PRICE_UNRESOLVED` | BLOCK | 这个数字背后产量和价格分别假设了什么？ |
 | 附加：难度越界 | `LEVEL1_TOO_MANY_INDICATORS`、`LEVEL1_HORIZON_TOO_LONG` | WARN | 第一轮就 4 个指标 5 年期，先把 2 个指标 3 年跑通。 |
+| 附加（v0.2.2 新增）：字段未判定 | `GATE_FIELD_UNCHECKED` | BLOCK | GDP 与财政收入这两项，涉及存量流量/量价分解的判断还没做过——不能因为没说就当成"无关"。 |
+| 附加（v0.2.2 新增）：基期公布时间不明 | `SOURCE_DATE_UNKNOWN` | WARN | 这个基期值是哪一年公布的？截点当天拿不到就不能用。 |
 
-**测试结果**：该夹具触发 36 个 BLOCK 发现、6 个 WARN 发现，`lockable=NO`。
+**测试结果**：该夹具触发 **39 个 BLOCK 发现、8 个 WARN 发现**，`lockable=NO`。
+
+> v0.2.1 时为 36 BLOCK / 6 WARN；v0.2.2 因新增三态字段闸门（`GATE_FIELD_UNCHECKED`）
+> 与基期公开时间检查（`SOURCE_DATE_UNKNOWN`）而增加。
 
 ---
 
 ## 四、复盘裁决
 
 ```text
-verdict           : PROCESS_DEFECTIVE_OUTCOME_MISS
-process_clean     : False
-error_attribution : FACTUAL, CALIBER, REASONING, MODEL, PROBABILITY, BASE_RATE_IGNORED
-interval_hit      : False
+case_summary.overall : CASE_CONSISTENT_DEFECTIVE
+outcome_status       : UNKNOWN   (hit=0 miss=0 unknown=4)
+verdict（逐指标）    : PROCESS_DEFECTIVE_OUTCOME_UNKNOWN ×4
+error_attribution    : BASE_RATE_IGNORED, CALIBER, FACTUAL, MODEL, PROBABILITY, REASONING
+interval_hit         : None
 ```
 
-注意：这一轮**不是因为结果错才被判失败**。判定依据是过程缺陷——即使结果碰巧命中，裁决也会是 `LUCKY_ACCURATE`。
+注意两点：
+
+1. 这一轮**不是因为结果错才被判失败**。判定依据是过程缺陷——即使结果碰巧命中，裁决也会是 `LUCKY_ACCURATE`。
+2. v0.2.2 起，当案例**没有提供结果记录**时，裁决是 `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN`
+   ——缺陷已足以定论"当时不应锁定"，**无须知道结果**。旧版会把它误判成 `..._MISS`（未知 ≠ 未命中）。
 
 ---
 
@@ -86,9 +96,9 @@ interval_hit      : False
 
 新版本遇到**同一形态的输入**时，必须满足：
 
-1. 在用户提交最终预测**之前**触发全部 36 个 BLOCK 中的核心闸门
+1. 在用户提交最终预测**之前**触发全部 39 个 BLOCK 中的核心闸门
 2. `lockable=NO`，不得进入揭晓
-3. 前台只输出其中**最关键的一条**（基期缺失优先），不得把 36 条摊给用户
+3. 前台只输出其中**最关键的一条**（基期缺失优先），不得把 39 条摊给用户
 4. 复盘时归因必须覆盖 `FACTUAL` / `REASONING` / `MODEL` / `PROBABILITY` / `BASE_RATE_IGNORED`
 
 不满足任一条，视为回归失败。
