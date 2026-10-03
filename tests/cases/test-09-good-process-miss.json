@@ -30,6 +30,7 @@
             ],
             "drivers": ["固定资产投资", "煤炭产量"],
             "constraints": ["财政收支", "产能"],
+            "stock_flow_relevant": false,
             "quantity_price_relevant": true,
             "quantity_price_split": true,
             "qualitative_direction": "up",

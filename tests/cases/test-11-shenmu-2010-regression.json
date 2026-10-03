@@ -255,15 +255,19 @@
             "counterargument": null,
             "missing_info": null
           }
-        ],
-        "outcome": {
-          "actual": null,
-          "interval_hit": false,
-          "note": "真实结局不写入回归夹具，避免剧透；此处只裁决过程缺陷。"
-        }
+        ]
       },
       "expect": {
-        "verdict": "PROCESS_DEFECTIVE_OUTCOME_MISS",
+        "verdict": "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN",
+        "case_summary_overall": "CASE_CONSISTENT_DEFECTIVE",
+        "outcome_status": "UNKNOWN",
+        "n_unknown": 4,
+        "indicator_verdicts": [
+          "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN",
+          "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN",
+          "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN",
+          "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN"
+        ],
         "must_attribution": ["FACTUAL", "CALIBER", "REASONING", "MODEL", "PROBABILITY", "BASE_RATE_IGNORED"]
       }
     }

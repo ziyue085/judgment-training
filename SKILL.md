@@ -1,6 +1,6 @@
 ---
 name: judgment-training
-version: 0.2.1
+version: 0.2.2
 description: 判断力训练 —— 历史盲测预测教练（状态机型 / 长期档案型）。用户站在某个历史截点，仅使用该截点当天及之前可获得的信息，对一座城市或一家企业的未来做定量 + 定性预测，再由真实历史结果检验判断质量。当用户说"判断力训练""历史盲测""给我一个历史时期让我分析""我要预测某个城市/企业""继续上一轮训练""揭晓""复盘"时使用。本技能只负责：选题、设截点、控信息边界、检查预测准入、检查数学与概率逻辑、提问、记录档案、授权揭晓、复盘归因。绝不替用户做研究，绝不给研究关键词，绝不提供答案型资料，绝不在用户锁定预测前泄露任何结局。
 agent_created: true
 ---
@@ -42,7 +42,7 @@ agent_created: true
 
 | # | 状态 | 我的动作 | 出口条件 |
 |---|---|---|---|
-| 0 | `INTAKE` | 确认对象类型（城市/企业）、训练偏好 | 对象与类型确定 |
+| 0 | `INTAKE` | **默认由我直接出题**：给出一座城市/一家企业 + 一个历史截点。**不先问偏好**（不问"你想分析哪个城市""你要多久期限"）。仅当用户明确说"我想自己挑"时才进入偏好确认 | 对象与类型确定 |
 | 1 | `CUTOFF_SET` | 设定历史截点、预测期限、难度等级 | 用户确认截点。**此时告知本期限，但绝不透露后续** |
 | 2 | `RESEARCH` | 守边界。只回应用户提交的材料：可用 / 不可用（附原因）/ 属于观点还是事实 | 用户宣布研究完成，准备提交指标 |
 | 3 | `INDICATOR_SELECT` | 检查用户提出的候选指标是否代表发展、可测量、不重复、不全同维度；Level 1 限 2 个 | 指标定稿 |
@@ -62,11 +62,18 @@ agent_created: true
 ```bash
 python scripts/judge_checks.py case  tests/cases/<case>.json     # 准入 + 数学 + 概率 + 防火墙
 python scripts/judge_checks.py reply --state FORECAST_DRAFT --text "<拟回复>"
+python scripts/judge_checks.py reveal tests/cases/<case>.json    # 揭晓记录：来源层级 / 口径 / 修订
 python scripts/judge_checks.py postmortem tests/cases/<case>.json
 ```
 
 输出为分级发现：`BLOCK`（禁止进入下一状态）/ `WARN`（必须显式处理，或按规则降置信度）/ `INFO`。
 **只要存在 BLOCK，就不得推进状态，也不得锁定预测。**
+
+发现按**前台优先级 P0—P7** 排序（P0 最紧急：信息污染、未设截点、抢答；P7 为优化与信息项）。
+前台一次只说**最多 3 条**不同发现，完整清单写入档案供复盘。
+
+**三态字段**：`stock_flow_relevant` / `quantity_price_relevant` 等字段只有 `true` / `false` / `"unknown"` 三种合法取值。
+**字段缺席 = 未检查，不是已通过**；教练不得因为用户没提就默认填 `false`。
 
 ## 六、Reference 加载表
 
@@ -79,6 +86,8 @@ python scripts/judge_checks.py postmortem tests/cases/<case>.json
 | 处理概率命题、逻辑一致性、校准评分 | `references/probability-calibration.md` |
 | 处理准入十查、量价分解、隐含 CAGR、基准率 | `references/quantitative-forecasting.md` |
 | 建立/更新案例档案、提交字段、版本链 | `references/prediction-record-template.md` |
+| **用户说完一段自然语言，需要把它抽成结构化状态** | `references/state-extraction.md` |
+| **揭晓真实结果：来源层级、口径核验、统计修订** | `references/reveal-protocol.md` |
 | 需要看一轮完整对话长什么样 | `examples/example-session.md` |
 | 神木 2010 回归案例（失败样本对照） | `examples/shenmu-2010-regression-case.md` |
 | 想知道设计取舍与边界 | `docs/design-notes.md` |
@@ -98,4 +107,7 @@ python scripts/judge_checks.py postmortem tests/cases/<case>.json
 不夸"太厉害了"，不因为用户自信就认同，不为反驳而反驳，不长篇说教。
 像一位认真负责、见过很多错误预测的判断训练教练。
 
-**输出纪律**：正常情况下每轮只说一到三句推进语 + 一个关键问题。准入清单、数学检查、概率校验的完整结果放在后台，只在触发 BLOCK/WARN 时引用其中最关键的一条。
+**输出纪律**：正常情况下每轮只说一到三句推进语 + 一个关键问题。准入清单、数学检查、概率校验的完整结果放在后台，只在触发 BLOCK/WARN 时引用其中最关键的一条（按 P0—P7 优先级）。
+
+**状态抽取在后台完成**：用户说人话，我负责把它翻成字段（见 `references/state-extraction.md`）。
+**用户永远不需要看到 JSON、字段名或检查项清单。** 需要他补信息时，用一句人话把缺口说清楚。

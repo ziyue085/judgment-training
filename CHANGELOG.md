@@ -4,6 +4,69 @@
 
 ---
 
+## [0.2.2] — 2026-10-03
+
+定向可靠性修复（bugfix / reliability release）。**不重构架构、不新增 roadmap 大功能**。
+目标是补齐从"结构化测试正确"到"真实长期训练可靠"之间的工程断点：两个最重要的缺口是
+**自然语言 → JSON 状态**，以及 **预测结果 → 多指标可靠复盘**。
+
+### Fixed
+
+- **完整日期期限计算**：`forecast_years()` 此前优先用年份差，`2010-12-31 → 2013-01-01`
+  被算成 3 年（实际 732 天 ≈ 2.00 年），使隐含 CAGR 被系统性低估。现在两端均为完整日期时
+  按 `(d1−d0).days / 365.25` 计算，仅在日期不完整时退回年份差
+- **历史序列门槛过度硬编码**：`MIN_HISTORY_POINTS=3` 从不可通融的死规则改为可降级——
+  走替代推导路径（`history_basis` ∈ capacity/order/share/…）**且写清机制**时，由 BLOCK 降级为
+  `LIMITED_HISTORY`(WARN)；概率 ≥70% 追加 `LIMITED_HISTORY_PROB_TOO_HIGH`(WARN)。
+  声明路径却不写机制仍按 BLOCK
+- **多指标复盘只评价第一个指标**：`postmortem()` 重写为逐指标裁决 + 案例级汇总，
+  修复"任何 case 级 outcome 都作用在 `indicators[0]`"的缺陷
+- **作用域污染**：引入 case-level 与 indicator-level 的归因隔离；某指标的过程缺陷不再污染
+  其他指标的评价，唯一例外是 case 级致命缺陷（`CUTOFF_NOT_SET` / 污染 / 前视泄漏）
+- **反向对照用例时间逻辑**：`test-12` 的基期改用 2009 全年正式公布值（`base_published_at: 2010-02-25`），
+  修正此前"截点当天引用次年才公布的数据"这一现实中不可能的自洽错误
+- **`LEVEL1_HORIZON_TOO_LONG` 容差**：365.25 天换算使含闰日的整年区间略超 3.0000，容差调整为 3.05
+
+### Added
+
+- **`references/state-extraction.md`** — 自然语言 → 结构化状态映射表（逐字段），
+  确立核心原则 **「未检查 ≠ 已通过」**：字段缺席表示尚未检查，不得默认 `false`；
+  允许并强制 `"unknown"` 作为显式第三态
+- **`references/reveal-protocol.md`** — 揭晓协议：城市/企业来源层级、口径核验、
+  统计修订处理（`as_reported_then` / `latest_revised` 必须同时保留）、`REVEAL_CALIBER_MISMATCH` 等规则
+- **三态字段机制**：`stock_flow_relevant` / `quantity_price_relevant` 等字段支持
+  `true` / `false` / `"unknown"`；缺席报 `GATE_FIELD_UNCHECKED`，`"unknown"` 报 `GATE_FIELD_UNKNOWN`
+- **`OUTCOME_UNKNOWN` 结果三态**：`PROCESS_GOOD_OUTCOME_UNKNOWN` /
+  `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN` / `CASE_INVALIDATED` / `CASE_MIXED` 等案例级裁决。
+  **未知 ≠ 未命中**：没有结果记录时不得判成 MISS
+- **信息防火墙双层时间**：区分 `data_period_end`（数据所属期）与 `published_at`（公开时间），
+  新增 `FIREWALL_LOOKAHEAD_LEAKAGE`（BLOCK）——最隐蔽的前视泄漏：所属期在截点前，
+  但截点当天根本还没公布（如截点 2010-12-31 使用"2010 全年 GDP"）
+- **前台呈现优先级 P0—P7**：`sort_findings()` + `front_stage()`，让"一次只处理最关键 1—3 条"
+  有确定实现；神木案例不再把 36 条 BLOCK 平铺给用户
+- **`reveal` CLI 子命令**与 `check_reveal()` 检查器
+- **对话级测试**：`tests/conversation/`（4 个自然语言用例）+ `tests/conversation-cases.md`，
+  运行器新增 `--conversation` 与 `extract` / `extract_absent` 映射断言
+- **Test 13—18**：完整日期期限、结果未知、多指标复盘、发布时间晚于截点、历史不足与替代路径、三态字段映射
+- **变异测试 D**：禁用"发布时间晚于截点"判定 → 期望 `test-16` 转红
+
+### Changed
+
+- **`INTAKE` 默认由教练直接出题**：给对象 + 截点，不先问偏好；仅当用户明确要求自选时才进入偏好确认
+- 神木回归夹具的 postmortem 由"结果未命中"改为 **`PROCESS_DEFECTIVE_OUTCOME_UNKNOWN`**
+  （无须知道结果即可定论"当时不应锁定"）
+- `SKILL.md` 升至 `0.2.2`，登记两个新 reference；frontmatter 描述不变
+- 测试规模：12 tests / 20 steps → **18 tests / 41 steps**（含 4 个对话级用例）
+
+### Known Limitations
+
+- 自然语言抽取仍依赖教练判断，脚本只能断言"抽取后的字段"是否符合规则；
+  `state-extraction.md` 提供的是规范而非自动解析器
+- 来源层级判定基于关键词匹配（`REVEAL_SOURCE_TIERS`），措辞差异可能漏判，故为 WARN 而非 BLOCK
+- 修订状态若用户无法确定，只能记 `"unknown"`，命中判定按现行值处理并在档案中标注
+
+---
+
 ## [0.2.1] — 2026-10-03
 
 ### Added
@@ -52,7 +115,7 @@
 
 ### Changed
 
-- `SKILL.md` 从"长提示词"改为精炼主文件（约 5.6k 字符）：只保留角色、九条铁律、状态机、检查器入口、reference 加载表、语气
+- `SKILL.md` 从"长提示词"改为精炼主文件（约 3.5k 字符）：只保留角色、九条铁律、状态机、检查器入口、reference 加载表、语气
 - 复杂方法论全部外置到 `references/`，按需加载，避免主文件膨胀
 - 前台上限从"无约束"收紧为**每轮 1—3 问**；重规则后台执行
 

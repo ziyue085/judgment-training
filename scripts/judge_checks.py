@@ -31,7 +31,7 @@ from pathlib import Path
 BLOCK, WARN, INFO = "BLOCK", "WARN", "INFO"
 SEVERITY_ORDER = {BLOCK: 0, WARN: 1, INFO: 2}
 
-MIN_HISTORY_POINTS = 3        # 历史序列最少时点
+MIN_HISTORY_POINTS = 3        # 历史序列最少时点（趋势外推路径）
 EXTREME_CAGR = 0.25           # 隐含 CAGR 绝对值超过此值 → 需罕见机制说明
 TENSION_CAGR = 0.05           # 定性为"持平"但隐含 CAGR 超过此值 → 张力
 UNIFORM_TOL = 0.02            # 统一概率判定容差
@@ -39,8 +39,71 @@ UNIFORM_MIN_COUNT = 3         # 至少几个指标同值才触发
 POINT_PROB_HIGH = 0.80        # 点预测 / 过窄区间的概率上限
 NARROW_REL_WIDTH = 0.05       # 区间相对宽度阈值
 BASE_RATE_PROB_CAP = 0.70     # 缺基准率时允许的最高置信度
+LIMITED_HISTORY_PROB_CAP = 0.70  # 历史不足但走替代机制时允许的最高置信度
 SUM_TOL = 0.05                # 互斥穷尽集合求和的容差
 MAX_QUESTIONS_PER_TURN = 3    # 每轮最多提问数
+FRONT_STAGE_LIMIT = 3         # 前台一次最多呈现几条
+
+# 三态字段：true / false / "unknown"。缺失 = 未检查，不得默认通过。
+UNKNOWN = "unknown"
+TRI_STATE_REQUIRED = ("stock_flow_relevant", "quantity_price_relevant")
+# 适用该字段的 kind（kind 缺失时视为 flow，从严）
+FLOW_LIKE_KINDS = {"flow", "stock", "quantity"}
+AMOUNT_LIKE_KINDS = {"flow", "stock"}
+# 历史序列不足时的替代推导路径：声明后由 BLOCK 降级为 LIMITED_HISTORY(WARN)
+ALT_HISTORY_BASES = {"alternative", "mechanism", "capacity", "order", "share", "contract", "admin"}
+
+# 前台呈现优先级（v0.2.2）：让"一次只处理最关键 1—3 个"有确定实现
+PRIORITY_ORDER = ["P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7"]
+PRIORITY = {
+    # P0 信息污染 / 时间边界 —— 污染即整轮作废
+    "CUTOFF_NOT_SET": "P0", "FIREWALL_CONTAMINATION": "P0",
+    "FIREWALL_LOOKAHEAD_LEAKAGE": "P0", "SOURCE_DATE_UNKNOWN": "P0",
+    # P1 基期 / 口径 / 单位 / 字段未判定
+    "GATE_BASE_MISSING": "P1", "GATE_CALIBER_MISSING": "P1",
+    "GATE_UNIT_MISSING": "P1", "GATE_FIELD_UNKNOWN": "P1",
+    "GATE_FIELD_UNCHECKED": "P1",
+    # P2 定性定量明显矛盾
+    "GATE_QUAL_QUANT_CONFLICT": "P2", "GATE_QUAL_QUANT_TENSION": "P2",
+    # P3 推导链缺失
+    "GATE_NO_HISTORY_SERIES": "P3", "LIMITED_HISTORY": "P3",
+    "GATE_DRIVER_MISSING": "P3", "GATE_CONSTRAINT_MISSING": "P3",
+    "LOCK_FIELD_MISSING": "P3", "PROB_NO_PROPOSITION": "P3", "PROB_MISSING": "P3",
+    "REVEAL_FIELD_MISSING": "P3", "REVEAL_CALIBER_MISMATCH": "P3",
+    "REVEAL_RECORD_MINIMAL": "P3",
+    # P4 模型结构
+    "GATE_STOCK_FLOW_UNRESOLVED": "P4", "GATE_QUANTITY_PRICE_UNRESOLVED": "P4",
+    # P5 概率
+    "PROB_UNIFORM": "P5", "PROB_PRECISION": "P5", "PROB_SUM": "P5",
+    "PROB_LOGIC_SUBSET": "P5", "PROB_EXTREME": "P5", "PROB_OUT_OF_RANGE": "P5",
+    "PROB_RANGE_INVERTED": "P5", "PROB_RELATION_UNRESOLVED": "P5",
+    "OUTCOME_SCOPE_AMBIGUOUS": "P5",
+    # P6 基准率
+    "BASE_RATE_MISSING": "P6", "BASE_RATE_MISSING_PROB_TOO_HIGH": "P6",
+    "LIMITED_HISTORY_PROB_TOO_HIGH": "P6",
+    # P7 优化项 / 信息类
+    "LEVEL1_TOO_MANY_INDICATORS": "P7", "LEVEL1_HORIZON_TOO_LONG": "P7",
+    "EXTREME_GROWTH_UNJUSTIFIED": "P7", "IMPLIED_CAGR_COMPUTED": "P7",
+    "IMPLIED_CAGR_NOT_APPLICABLE": "P7", "ADMISSION_OK": "P7",
+    "FIREWALL_ISOLATED": "P7", "REVEAL_SOURCE_TIER_LOW": "P7",
+    "SOURCE_DATE_LEGACY_FIELD": "P7",
+    "REVEAL_REVISION_UNRECORDED": "P7", "REVEAL_PERIOD_MISMATCH": "P7",
+    "REVEAL_OK": "P7", "REPLY_OK": "P7", "COACH_PRAISE": "P7",
+    "COACH_TOO_MANY_QUESTIONS": "P7", "COACH_ANALYST_TONE": "P7",
+    "COACH_ANSWER_GIVING": "P0", "COACH_SPOILER_RISK": "P0",
+    # 复盘裁决相关
+    "CASE_INVALIDATED": "P0",
+}
+
+# 复盘：这些 case 级缺陷使整轮作废（不是"某个指标的问题"）
+CASE_FATAL_CODES = {
+    "CUTOFF_NOT_SET", "FIREWALL_CONTAMINATION", "FIREWALL_LOOKAHEAD_LEAKAGE",
+}
+# 复盘：结果记录的来源层级（权威度由高到低）
+REVEAL_SOURCE_TIERS = {
+    "city": ("统计公报", "统计年鉴", "统计数据库", "政府", "统计局"),
+    "company": ("年报", "交易所", "10-K", "20-F", "法定披露", "audited"),
+}
 
 # 教练越界词表
 ANSWER_GIVING_PAT = re.compile(
@@ -65,8 +128,42 @@ class Finding:
         return f"[{self.severity:5s}] {self.code:36s} @ {self.scope}: {self.message}{d}"
 
 
+def priority_of(code: str) -> str:
+    """发现的前台优先级（P0 最紧急）。未登记的一律 P7。"""
+    return PRIORITY.get(code, "P7")
+
+
 def sort_findings(findings):
-    return sorted(findings, key=lambda f: (SEVERITY_ORDER.get(f.severity, 9), f.scope, f.code))
+    """按前台优先级排序：先 P0..P7，同级别内 BLOCK → WARN → INFO。
+
+    v0.2.2：此前按 severity 排序，导致神木案例会把 36 条 BLOCK 平铺出来。
+    规则优先级必须显式化，前台才能稳定地只处理最关键 1—3 条。
+    """
+    return sorted(findings, key=lambda f: (
+        PRIORITY_ORDER.index(priority_of(f.code)),
+        SEVERITY_ORDER.get(f.severity, 9),
+        f.scope,
+        f.code,
+    ))
+
+
+INFO_NOISE = {"ADMISSION_OK", "IMPLIED_CAGR_COMPUTED", "REPLY_OK", "FIREWALL_ISOLATED", "REVEAL_OK"}
+
+
+def front_stage(findings, limit: int = FRONT_STAGE_LIMIT):
+    """前台实际应该说的那几条：按优先级取前 N 个不同 code，跳过纯信息项。
+
+    完整清单仍写入档案供复盘，不在前台摊给用户。
+    """
+    out, seen = [], set()
+    for f in sort_findings(findings):
+        if f.code in INFO_NOISE or f.code in seen:
+            continue
+        seen.add(f.code)
+        out.append(f)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def has_block(findings) -> bool:
@@ -89,29 +186,67 @@ def parse_year(value) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def parse_date(value) -> date | None:
-    if not value:
+FULL_DATE_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*$")
+
+
+def parse_full_date(value) -> date | None:
+    """仅当输入是完整 `YYYY-MM-DD` 时返回 date；只有年份或年月则返回 None。
+
+    必须能区分 `2010` 与 `2010-12-31`：前者不能用于按天精确计算期限。
+    """
+    if value is None:
+        return None
+    m = FULL_DATE_RE.match(str(value))
+    if not m:
         return None
     try:
-        y, m, d = (str(value).split("-") + ["1", "1"])[:3]
-        return date(int(y), int(m), int(d))
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def parse_date(value) -> date | None:
+    """宽松解析（用于时间防火墙比较）：仅有年份时按 01-01 处理。"""
+    if not value:
+        return None
+    d = parse_full_date(value)
+    if d:
+        return d
+    try:
+        parts = (str(value).split("-") + ["1", "1"])[:3]
+        return date(int(parts[0]), int(parts[1]), int(parts[2]))
     except Exception:
         return None
 
 
 def forecast_years(case, indicator=None) -> float | None:
-    """预测年数：优先显式 forecast_years，其次由截点与期限的年份差推导。"""
+    """预测期限年数。
+
+    v0.2.2 修复：此前优先使用年份差，`2010-12-31 → 2013-01-01` 会被算成 3 年，
+    实际只有 732 天 ≈ 2.00 年 —— 会让隐含 CAGR 被系统性低估。
+    现在：两端都是**完整日期**时，用 (d1 - d0).days / 365.25；
+    只有在日期不完整（仅年份）时才退回年份差。
+    """
     if indicator and indicator.get("forecast_years"):
         return float(indicator["forecast_years"])
     if case.get("forecast_years"):
         return float(case["forecast_years"])
-    y0 = parse_year(case.get("historical_cutoff"))
-    y1 = parse_year(case.get("forecast_to"))
+
+    d0 = parse_full_date(case.get("historical_cutoff"))
+    d1 = parse_full_date(case.get("forecast_to"))
+    if d0 and d1:
+        if d1 <= d0:
+            return None
+        return (d1 - d0).days / 365.25
+
+    y0, y1 = parse_year(case.get("historical_cutoff")), parse_year(case.get("forecast_to"))
     if y0 and y1 and y1 > y0:
         return float(y1 - y0)
-    d0, d1 = parse_date(case.get("historical_cutoff")), parse_date(case.get("forecast_to"))
-    if d0 and d1 and d1 > d0:
-        return (d1 - d0).days / 365.25
+
+    # 退化：一端完整日期、一端只有年份
+    dd0, dd1 = parse_date(case.get("historical_cutoff")), parse_date(case.get("forecast_to"))
+    if dd0 and dd1 and dd1 > dd0:
+        return (dd1 - dd0).days / 365.25
     return None
 
 
@@ -147,8 +282,25 @@ def mid_of(ind):
 
 # ---------------------------------------------------------------- 检查：案例
 
+def _publish_date(rec) -> tuple:
+    """取一条记录中可用的"发布时间"及其字段名。新字段优先。"""
+    for key in ("published_at", "source_date", "date"):
+        if rec.get(key):
+            return parse_date(rec.get(key)), key
+    return None, None
+
+
 def check_firewall(case) -> list[Finding]:
-    """信息防火墙：截点之后公开的材料不得进入本轮预测。"""
+    """信息防火墙（v0.2.2 升级）。
+
+    必须把两件事分开：
+      - `data_period_end`  数据**描述**的统计期间结束 → 它"讲的是哪一段时间"
+      - `published_at`     数据**真正公开**的时间     → 它"什么时候能被看到"
+
+    最典型的历史盲测泄漏：数据所属期在截点之前，但截点当天根本还没公布。
+    例如截点 2010-12-31，使用"2010 全年 GDP"——该值通常 2011 年才发布。
+    仅比较 `data_year <= cutoff_year` 是**不够的**。
+    """
     out: list[Finding] = []
     cutoff = parse_date(case.get("historical_cutoff"))
     if cutoff is None:
@@ -156,32 +308,102 @@ def check_firewall(case) -> list[Finding]:
                            "未设定历史截点，无法建立信息防火墙。"))
         return out
 
+    # ---- 材料级 ----
     for i, src in enumerate(case.get("sources") or []):
         scope = f"source[{i}]"
-        d = parse_date(src.get("date"))
-        if d is None:
-            out.append(Finding("SOURCE_DATE_UNKNOWN", WARN, scope,
-                               "材料发布日期不明；未确认截点前出处前不得用于预测。"))
+        isolated = src.get("usable") is False
+        pub, key = _publish_date(src)
+        period_end = parse_date(src.get("data_period_end"))
+        lab = src.get("published_at") or src.get("source_date") or src.get("date")
+
+        if pub is None:
+            if src.get("available_at_cutoff") is False:
+                out.append(Finding("FIREWALL_LOOKAHEAD_LEAKAGE", BLOCK, scope,
+                                   "记录标注为截点前不可获得，却没有发布时间，无法核验。",
+                                   "先补 published_at 再谈能不能用。"))
+            else:
+                out.append(Finding("SOURCE_DATE_UNKNOWN", WARN, scope,
+                                   "材料发布时间不明；未确认截点前出处前不得用于预测。"))
             continue
-        if d > cutoff:
-            if src.get("usable") is False:
+
+        if pub > cutoff:
+            if isolated:
                 out.append(Finding("FIREWALL_ISOLATED", INFO, scope,
-                                   f"{src.get('date')} 晚于截点 {case.get('historical_cutoff')}，已正确隔离。"))
+                                   f"{lab} 晚于截点 {case.get('historical_cutoff')}，已正确隔离。"))
+            elif period_end and period_end <= cutoff:
+                out.append(Finding("FIREWALL_LOOKAHEAD_LEAKAGE", BLOCK, scope,
+                                   f"数据期截止 {src.get('data_period_end')} 在截点前，"
+                                   f"但发布时间 {lab} 在截点 {case.get('historical_cutoff')} 之后。",
+                                   "所属期在截点之前 ≠ 截点当天已经公开。"))
             else:
                 out.append(Finding("FIREWALL_CONTAMINATION", BLOCK, scope,
-                                   f"{src.get('date')} 发表于截点 {case.get('historical_cutoff')} 之后，不得进入本轮预测。",
+                                   f"{lab} 发表于截点 {case.get('historical_cutoff')} 之后，不得进入本轮预测。",
                                    "只说明不可用，不解释其含义。"))
+        elif key != "published_at":
+            out.append(Finding("SOURCE_DATE_LEGACY_FIELD", INFO, scope,
+                               f"以旧字段 `{key}` 当作发布日期；建议改用 published_at + data_period_end。"))
 
+    # ---- 指标级：基期值的公开时间 ----
     for i, ind in enumerate(case.get("indicators") or []):
-        d = parse_date(ind.get("base_source_date"))
-        if d and d > cutoff:
-            out.append(Finding("FIREWALL_CONTAMINATION", BLOCK, f"indicator[{i}].base_source_date",
-                               f"基期数据来源日期 {ind.get('base_source_date')} 晚于截点。"))
+        name = ind.get("name") or f"indicator[{i}]"
+        scope = f"指标「{name}」"
+        raw = ind.get("base_published_at") or ind.get("base_source_date")
+        base_pub = parse_date(raw)
+        if base_pub is not None and base_pub > cutoff:
+            out.append(Finding("FIREWALL_CONTAMINATION", BLOCK, scope,
+                               f"基期数据公开时间 {raw} 晚于截点 {case.get('historical_cutoff')}。",
+                               "截点当天拿不到这个基期值。"))
+        elif base_pub is None and ind.get("base_value") is not None:
+            out.append(Finding("SOURCE_DATE_UNKNOWN", WARN, scope,
+                               "有基期值，但未记录该值的公开时间；无法证明截点当天可获得。",
+                               "请补 base_published_at。"))
     return out
 
 
+def indicator_kind(ind) -> str:
+    """指标类型；缺失时从严视为 flow（金额/流量类）。"""
+    return str(ind.get("kind") or "flow").strip().lower()
+
+
+def _is_unknown(value) -> bool:
+    return isinstance(value, str) and value.strip().lower() == UNKNOWN
+
+
+def _tri_state(ind, field: str, applicable: bool, scope: str, out: list) -> bool:
+    """三态字段判定（true / false / "unknown"）。返回该字段是否为显式 true。
+
+    v0.2.2 核心原则：**未检查 ≠ 已通过**。
+      - 字段缺失      → `GATE_FIELD_UNCHECKED` (BLOCK)：不得默认 false
+      - 字段 = unknown → `GATE_FIELD_UNKNOWN`   (BLOCK)：明确尚未判定
+    因此不允许因为"用户没提存量流量"就自动填 false。
+    """
+    if not applicable:
+        return False
+    if field not in ind or ind.get(field) is None:
+        out.append(Finding("GATE_FIELD_UNCHECKED", BLOCK, scope,
+                           f"字段 `{field}` 未判定。未检查 ≠ 已通过。",
+                           "教练必须显式判定 true 或 false；不能因为用户没提就默认 false。"))
+        return False
+    if _is_unknown(ind.get(field)):
+        out.append(Finding("GATE_FIELD_UNKNOWN", BLOCK, scope,
+                           f"字段 `{field}` 目前是 unknown —— 尚未判定，不得进入预测。",
+                           "先查清楚，再谈预测。"))
+        return False
+    return bool(ind.get(field))
+
+
+def _flag_unknown_or_unresolved(ind, field: str, scope: str, out: list, code: str, message: str):
+    """relevant=true 时，resolved/split 必须显式为 true；unknown 单独报错。"""
+    val = ind.get(field)
+    if _is_unknown(val):
+        out.append(Finding("GATE_FIELD_UNKNOWN", BLOCK, scope,
+                           f"字段 `{field}` 目前是 unknown —— 尚未判定。"))
+    elif val is not True:
+        out.append(Finding(code, BLOCK, scope, message))
+
+
 def check_admission(case) -> list[Finding]:
-    """预测准入门槛（十查中的八项硬门槛 + 提交字段完整性）。"""
+    """预测准入门槛（八项硬门槛 + 三态字段 + 提交字段完整性）。"""
     out: list[Finding] = []
     for i, ind in enumerate(case.get("indicators") or []):
         name = ind.get("name") or f"indicator[{i}]"
@@ -195,31 +417,64 @@ def check_admission(case) -> list[Finding]:
         if not ind.get("base_caliber"):
             out.append(Finding("GATE_CALIBER_MISSING", BLOCK, scope,
                                "缺少基期口径（价别/地域/人口分母等）。"))
+
+        # ---- 历史序列：趋势路径需要 ≥3 点；替代机制路径可豁免但降级为 WARN ----
         hist = ind.get("history") or []
+        basis = str(ind.get("history_basis") or "trend").strip().lower()
+        alt_mech = str(ind.get("alternative_mechanism") or "").strip()
         if len(hist) < MIN_HISTORY_POINTS:
-            out.append(Finding("GATE_NO_HISTORY_SERIES", BLOCK, scope,
-                               f"历史变化序列不足：{len(hist)} 个时点 < 要求 {MIN_HISTORY_POINTS} 个。"))
+            if basis in ALT_HISTORY_BASES:
+                if alt_mech:
+                    out.append(Finding("LIMITED_HISTORY", WARN, scope,
+                                       f"历史序列只有 {len(hist)} 个时点，未走趋势外推，"
+                                       f"采用替代推导路径（{basis}）。",
+                                       f"替代机制：{alt_mech}。须说明为何历史外推不适用，"
+                                       f"并降低概率或扩大区间。"))
+                    try:
+                        p = float(ind.get("probability"))
+                    except (TypeError, ValueError):
+                        p = None
+                    if p is not None and p >= LIMITED_HISTORY_PROB_CAP:
+                        out.append(Finding("LIMITED_HISTORY_PROB_TOO_HIGH", WARN, scope,
+                                           f"历史不足却给出 {p:.0%} 置信度"
+                                           f"（≥{LIMITED_HISTORY_PROB_CAP:.0%}）。",
+                                           "应降低概率或扩大区间。"))
+                else:
+                    out.append(Finding("GATE_NO_HISTORY_SERIES", BLOCK, scope,
+                                       f"声称走替代推导路径（{basis}），却没有写清是什么机制。",
+                                       "必须写明 alternative_mechanism，否则视同缺口。"))
+            else:
+                out.append(Finding("GATE_NO_HISTORY_SERIES", BLOCK, scope,
+                                   f"历史变化序列不足：{len(hist)} 个时点 < 要求 "
+                                   f"{MIN_HISTORY_POINTS} 个，且未声明替代推导机制。"))
+
         if not ind.get("drivers"):
             out.append(Finding("GATE_DRIVER_MISSING", BLOCK, scope, "未识别主要驱动变量。"))
         if not ind.get("constraints"):
             out.append(Finding("GATE_CONSTRAINT_MISSING", BLOCK, scope, "未识别主要约束变量。"))
-        if ind.get("stock_flow_relevant") and not ind.get("stock_flow_resolved"):
-            out.append(Finding("GATE_STOCK_FLOW_UNRESOLVED", BLOCK, scope,
-                               "涉及存量与流量，但未区分。储量是存量，产量是流量。"))
-        if ind.get("quantity_price_relevant") and not ind.get("quantity_price_split"):
-            out.append(Finding("GATE_QUANTITY_PRICE_UNRESOLVED", BLOCK, scope,
-                               "金额类指标未拆分数量与价格。"))
 
-        # 提交字段完整性（有预测值即视为已进入 CHECKS）
+        # ---- 三态字段（未判定不得视为通过） ----
+        kind = indicator_kind(ind)
+        if _tri_state(ind, "stock_flow_relevant", kind in FLOW_LIKE_KINDS, scope, out):
+            _flag_unknown_or_unresolved(
+                ind, "stock_flow_resolved", scope, out, "GATE_STOCK_FLOW_UNRESOLVED",
+                "涉及存量与流量，但未区分。储量是存量，产量是流量。")
+        if _tri_state(ind, "quantity_price_relevant", kind in AMOUNT_LIKE_KINDS, scope, out):
+            _flag_unknown_or_unresolved(
+                ind, "quantity_price_split", scope, out, "GATE_QUANTITY_PRICE_UNRESOLVED",
+                "金额类指标未拆分数量与价格。")
+
+        # ---- 提交字段完整性（有预测值即视为已进入 CHECKS） ----
         if point_estimate(ind) is not None or ind.get("probability") is not None:
-            for key, code, label in (
-                ("reasoning", "LOCK_FIELD_MISSING", "推导过程"),
-                ("failure_conditions", "LOCK_FIELD_MISSING", "失效条件"),
-                ("counterargument", "LOCK_FIELD_MISSING", "最强反方解释"),
-                ("missing_info", "LOCK_FIELD_MISSING", "当前最缺的信息"),
+            for key, label in (
+                ("reasoning", "推导过程"),
+                ("failure_conditions", "失效条件"),
+                ("counterargument", "最强反方解释"),
+                ("missing_info", "当前最缺的信息"),
             ):
                 if not ind.get(key):
-                    out.append(Finding(code, BLOCK, scope, f"提交字段缺失：{label}。"))
+                    out.append(Finding("LOCK_FIELD_MISSING", BLOCK, scope,
+                                       f"提交字段缺失：{label}。"))
             if not ind.get("proposition"):
                 out.append(Finding("PROB_NO_PROPOSITION", BLOCK, scope,
                                    "未写成命题形式，概率无判定条件。"))
@@ -362,13 +617,103 @@ def check_probabilities(case) -> list[Finding]:
     return out
 
 
+REVEAL_REQUIRED = (("actual_value", "结果值"), ("actual_unit", "单位"),
+                   ("actual_caliber", "口径"), ("actual_period", "期间"), ("source", "来源"))
+REVEAL_RECORD_KEYS = ("actual_value", "actual_unit", "actual_caliber", "actual_period",
+                      "source", "revision_status", "as_reported_then", "latest_revised")
+
+
+def _find_indicator(case, name):
+    for i, ind in enumerate(case.get("indicators") or []):
+        if (ind.get("name") or f"indicator[{i}]") == name:
+            return ind
+    return None
+
+
+def check_reveal(case) -> list[Finding]:
+    """揭晓阶段核验（v0.2.2 新增）。
+
+    揭晓不只是记录 `actual = 800`，必须同时记录单位、口径、期间、来源、公开时间与修订状态，
+    并检查口径与预测所用的 base / proposition 是否一致。
+    城市优先统计公报/年鉴/官方数据库；企业优先年报/交易所披露/法定文件。
+    """
+    out: list[Finding] = []
+    names = _indicator_names(case)
+
+    records = []
+    explicit = case.get("outcomes")
+    if isinstance(explicit, dict):
+        for n in names:
+            if isinstance(explicit.get(n), dict):
+                records.append((f"结果「{n}」", explicit[n], _find_indicator(case, n)))
+    elif case.get("outcome") is not None and names and len(names) <= 1:
+        records.append((f"结果「{names[0]}」", case["outcome"], _find_indicator(case, names[0])))
+
+    if not records:
+        return out
+
+    stage = str(case.get("stage") or "").upper()
+    obj_type = str(case.get("object_type") or "city").lower()
+    tier = REVEAL_SOURCE_TIERS.get(obj_type, REVEAL_SOURCE_TIERS["city"])
+
+    for scope, rec, ind in records:
+        formal = any(k in rec for k in REVEAL_RECORD_KEYS)
+        if not formal:
+            out.append(Finding("REVEAL_RECORD_MINIMAL", WARN, scope,
+                               "结果记录只有一个裸数值，没有口径 / 来源 / 期间。",
+                               "复盘算命中可以用，但正式揭晓必须补全口径与来源。"))
+            if stage != "REVEAL":
+                continue
+
+        for key, label in REVEAL_REQUIRED:
+            if rec.get(key) in (None, ""):
+                out.append(Finding("REVEAL_FIELD_MISSING", BLOCK, scope,
+                                   f"揭晓记录缺少{label}（{key}）。"))
+        if rec.get("published_at") in (None, ""):
+            out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope, "揭晓记录缺少公开时间。"))
+        if rec.get("revision_status") in (None, ""):
+            out.append(Finding("REVEAL_FIELD_MISSING", WARN, scope,
+                               "揭晓记录缺少修订状态（initial / revised / final / unknown）。"))
+
+        src = str(rec.get("source") or "")
+        if src and not any(t.lower() in src.lower() for t in tier):
+            out.append(Finding("REVEAL_SOURCE_TIER_LOW", WARN, scope,
+                               f"来源「{src}」不属于该对象类型的优先来源层级。",
+                               f"{'城市' if obj_type == 'city' else '企业'}优先："
+                               + " / ".join(tier) + "。其他来源只能作补充。"))
+
+        if ind is not None:
+            bc = str(ind.get("base_caliber") or "").strip()
+            ac = str(rec.get("actual_caliber") or "").strip()
+            if bc and ac and bc != ac:
+                out.append(Finding("REVEAL_CALIBER_MISMATCH", BLOCK, scope,
+                                   f"结果口径「{ac}」与基期口径「{bc}」不一致。",
+                                   "口径不一致时命中判定无效：常住/户籍、当年价/不变价、全市/市辖区。"))
+            bp = str(ind.get("base_period") or "").strip()
+            ap = str(rec.get("actual_period") or "").strip()
+            if bp and ap and bp == ap:
+                out.append(Finding("REVEAL_PERIOD_MISMATCH", WARN, scope,
+                                   f"结果期间「{ap}」与基期期间相同，疑似取错时点。"))
+
+        if str(rec.get("revision_status") or "").lower() in ("revised", "final") \
+                and not rec.get("as_reported_then"):
+            out.append(Finding("REVEAL_REVISION_UNRECORDED", WARN, scope,
+                               "结果标注为已修订 / 终值，但未保留当时公布值（as_reported_then）。",
+                               "须同时保留「当时公布值」与「后来修订值」，不得只留对预测有利的那个。"))
+
+    if not out:
+        out.append(Finding("REVEAL_OK", INFO, "<case>", "揭晓记录字段与口径核验通过。"))
+    return out
+
+
 def check_case(case) -> list[Finding]:
-    """完整案例检查。返回排序后的 Finding 列表。"""
+    """完整案例检查。返回按前台优先级排序后的 Finding 列表。"""
     out: list[Finding] = []
     out += check_firewall(case)
     out += check_admission(case)
     out += check_quant(case)
     out += check_probabilities(case)
+    out += check_reveal(case)
 
     # 难度与结构的匹配
     lvl = case.get("difficulty")
@@ -378,7 +723,8 @@ def check_case(case) -> list[Finding]:
         if n_ind > 2:
             out.append(Finding("LEVEL1_TOO_MANY_INDICATORS", WARN, "<case>",
                                f"Level 1 最多 2 个核心指标，当前 {n_ind} 个。"))
-        if yrs and yrs > 3:
+        # 容差 0.05 年：按 365.25 天换算时，含闰日的整年区间会略超 3.0000
+        if yrs and yrs > 3 + 0.05:
             out.append(Finding("LEVEL1_HORIZON_TOO_LONG", WARN, "<case>",
                                f"Level 1 期限建议 ≤3 年，当前 {yrs:g} 年。"))
 
@@ -439,13 +785,18 @@ FLAG_TO_ATTRIBUTION = {
     "GATE_CALIBER_MISSING": "CALIBER",
     "GATE_UNIT_MISSING": "CALIBER",
     "GATE_NO_HISTORY_SERIES": "FACTUAL",
+    "LIMITED_HISTORY": "FACTUAL",
     "GATE_DRIVER_MISSING": "REASONING",
     "GATE_CONSTRAINT_MISSING": "REASONING",
+    "GATE_FIELD_UNCHECKED": "REASONING",
+    "GATE_FIELD_UNKNOWN": "REASONING",
     "GATE_STOCK_FLOW_UNRESOLVED": "MODEL",
     "GATE_QUANTITY_PRICE_UNRESOLVED": "MODEL",
     "GATE_QUAL_QUANT_CONFLICT": "REASONING",
+    "GATE_QUAL_QUANT_TENSION": "REASONING",
     "BASE_RATE_MISSING": "BASE_RATE_IGNORED",
     "BASE_RATE_MISSING_PROB_TOO_HIGH": "BASE_RATE_IGNORED",
+    "LIMITED_HISTORY_PROB_TOO_HIGH": "PROBABILITY",
     "PROB_UNIFORM": "PROBABILITY",
     "PROB_PRECISION": "PROBABILITY",
     "PROB_EXTREME": "PROBABILITY",
@@ -453,66 +804,229 @@ FLAG_TO_ATTRIBUTION = {
     "PROB_SUM": "PROBABILITY",
     "PROB_NO_PROPOSITION": "PROBABILITY",
     "PROB_MISSING": "PROBABILITY",
+    "PROB_OUT_OF_RANGE": "PROBABILITY",
+    "PROB_RANGE_INVERTED": "PROBABILITY",
     "EXTREME_GROWTH_UNJUSTIFIED": "PARAMETER",
     "FIREWALL_CONTAMINATION": "FACTUAL",
+    "FIREWALL_LOOKAHEAD_LEAKAGE": "FACTUAL",
+    "SOURCE_DATE_UNKNOWN": "FACTUAL",
     "LOCK_FIELD_MISSING": "REASONING",
+    "REVEAL_FIELD_MISSING": "CALIBER",
+    "REVEAL_CALIBER_MISMATCH": "CALIBER",
+    "REVEAL_PERIOD_MISMATCH": "CALIBER",
+    "REVEAL_REVISION_UNRECORDED": "CALIBER",
 }
 
-SEVERE_ATTRIBUTIONS = {"REASONING", "BASE_RATE_IGNORED", "CALIBER", "MODEL", "PARAMETER"}
+VERDICT_NOTES = {
+    "PROCESS_GOOD_OUTCOME_HIT": "过程与结果均达标。",
+    "PROCESS_GOOD_OUTCOME_MISS": "结果落在低概率情景，但过程合理且概率诚实：不得判定过程失败。",
+    "PROCESS_GOOD_OUTCOME_UNKNOWN": "过程合理，但结果尚未提供 / 尚未揭晓：不得视为失败，也不得视为成功。",
+    "LUCKY_ACCURATE": "结果正确不等于预测优秀：过程存在缺陷，命中应归因于运气。",
+    "PROCESS_DEFECTIVE_OUTCOME_MISS": "过程有缺陷且未命中，按 error_attribution 分项复盘。",
+    "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN": "过程缺陷已足以判定当时不应 LOCK —— 无需知道结果即可定论。",
+    "CASE_INVALIDATED": "存在使整轮作废的 case 级缺陷（信息污染 / 未设截点），个别指标的过程评价失去意义。",
+    "CASE_NO_INDICATORS": "案例未包含指标，无法复盘。",
+    "CASE_MIXED": "各指标过程质量不一致：必须逐指标评价，不得用一个总分掩盖差异。",
+    "CASE_CONSISTENT_CLEAN": "各指标过程质量一致（均无明显缺陷）。",
+    "CASE_CONSISTENT_DEFECTIVE": "各指标过程质量一致（均存在缺陷）。",
+}
+
+
+def _scope_of(finding) -> str:
+    return str(finding.get("scope") or "")
+
+
+def _codes_of(findings, severity=None):
+    return [f["code"] for f in findings if severity is None or f.get("severity") == severity]
+
+
+def _attribution(codes_):
+    att = {}
+    for c in codes_:
+        a = FLAG_TO_ATTRIBUTION.get(c)
+        if a:
+            att[a] = att.get(a, 0) + 1
+    return att
+
+
+def _quadrant(clean: bool, hit):
+    """过程质量 × 结果 的六象限。hit=None 是"未知"，不是"未命中"。"""
+    if clean:
+        if hit is True:
+            return "PROCESS_GOOD_OUTCOME_HIT"
+        if hit is False:
+            return "PROCESS_GOOD_OUTCOME_MISS"
+        return "PROCESS_GOOD_OUTCOME_UNKNOWN"
+    if hit is True:
+        return "LUCKY_ACCURATE"
+    if hit is False:
+        return "PROCESS_DEFECTIVE_OUTCOME_MISS"
+    return "PROCESS_DEFECTIVE_OUTCOME_UNKNOWN"
+
+
+def _indicator_names(case):
+    return [(ind.get("name") or f"indicator[{i}]") for i, ind in enumerate(case.get("indicators") or [])]
+
+
+def _outcomes_for(case):
+    """把结果记录映射到具体指标。
+
+    v0.2.2 修复：此前任何 case 级 outcome 都作用在 indicators[0] 上，
+    多指标案例实际只评价了第一个指标。
+
+    规则：
+      - `outcomes: {指标名: {...}}` 优先，逐指标映射
+      - 单指标案例允许用 `outcome: {...}` 直接对应
+      - 多指标却只给一个 `outcome` → 归属不明，一律按"结果未知"处理并给出 WARN
+    """
+    names = _indicator_names(case)
+    out_map, warn = {}, None
+    explicit = case.get("outcomes")
+    if isinstance(explicit, dict):
+        for n in names:
+            if isinstance(explicit.get(n), dict):
+                out_map[n] = explicit[n]
+        return out_map, warn
+
+    if case.get("outcome") is not None:
+        if len(names) <= 1:
+            if names:
+                out_map[names[0]] = case["outcome"]
+        else:
+            pinned = (case.get("postmortem") or {}).get("outcome_scope")
+            if isinstance(pinned, str) and pinned in names:
+                out_map[pinned] = case["outcome"]
+            else:
+                warn = Finding("OUTCOME_SCOPE_AMBIGUOUS", WARN, "<case>",
+                               f"案例有 {len(names)} 个指标，但只提供了一个 outcome，归属不明。",
+                               "请改用 outcomes: {指标名: {...}}；否则全部按结果未知处理。")
+    return out_map, warn
 
 
 def postmortem(case) -> dict:
-    """复盘裁决：过程质量 × 结果命中 的四象限 + 错误归因。"""
+    """复盘裁决（v0.2.2）：逐指标裁决 + 作用域归因 + 案例级汇总。
+
+    关键原则：
+      - **作用域隔离**：某个指标的问题不得污染其他指标的过程评价。
+        唯一例外是 case 级致命缺陷（信息污染 / 未设截点）——那会让整轮作废。
+      - **未知 ≠ 未命中**：没有结果输入时给 `*_OUTCOME_UNKNOWN`，
+        不得因为"没有命中记录"就判成 MISS。
+    """
     findings = case.get("checks", {}).get("findings") or []
-    block_codes = [f["code"] for f in findings if f.get("severity") == BLOCK]
-    warn_codes = [f["code"] for f in findings if f.get("severity") == WARN]
-    explicit = (case.get("postmortem") or {}).get("process_flags")
-    flags = list(explicit) if explicit is not None else block_codes
+    indicators = case.get("indicators") or []
+    ind_scopes = {f"指标「{n}」" for n in _indicator_names(case)}
 
-    # 错误归因覆盖 BLOCK 与 WARN 两级：缺基准率等 WARN 级缺陷也必须进入归因。
-    attention = {}
-    for c in list(flags) + list(warn_codes):
-        a = FLAG_TO_ATTRIBUTION.get(c)
-        if a:
-            attention[a] = attention.get(a, 0) + 1
+    case_findings = [f for f in findings if _scope_of(f) not in ind_scopes]
+    case_block = _codes_of(case_findings, BLOCK)
+    case_warn = _codes_of(case_findings, WARN)
+    case_fatal = sorted(set(case_block) & CASE_FATAL_CODES)
+    case_att = _attribution(case_block + case_warn)
 
-    outcome = case.get("outcome") or {}
-    ind = (case.get("indicators") or [{}])[0]
-    lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
-    actual = outcome.get("actual")
-    hit = outcome.get("interval_hit")
-    if hit is None and actual is not None and lo is not None and hi is not None:
-        hit = float(lo) <= float(actual) <= float(hi)
+    out_map, scope_warn = _outcomes_for(case)
+    if scope_warn is not None:
+        case_warn = case_warn + [scope_warn.code]
+        for k, v in _attribution([scope_warn.code]).items():
+            case_att[k] = case_att.get(k, 0) + v
 
-    p = ind.get("probability")
-    brier = None
-    if hit is not None and p is not None:
-        brier = (float(p) - (1.0 if hit else 0.0)) ** 2
+    indicator_results = []
+    for i, ind in enumerate(indicators):
+        name = ind.get("name") or f"indicator[{i}]"
+        scope = f"指标「{name}」"
+        ind_findings = [f for f in findings if _scope_of(f) == scope]
+        blocks = _codes_of(ind_findings, BLOCK)
+        warns = _codes_of(ind_findings, WARN)
 
-    process_clean = not flags and not any(a in SEVERE_ATTRIBUTIONS for a in attention)
-    if process_clean and hit:
-        verdict = "PROCESS_GOOD_OUTCOME_HIT"
-    elif process_clean and hit is False:
-        verdict = "PROCESS_GOOD_OUTCOME_MISS"
-    elif not process_clean and hit:
-        verdict = "LUCKY_ACCURATE"
+        clean = (not blocks) and (not case_fatal)
+
+        oc = out_map.get(name) or {}
+        lo, hi = ind.get("forecast_low"), ind.get("forecast_high")
+        actual = oc.get("actual")
+        hit = oc.get("interval_hit")
+        if hit is None and actual is not None and lo is not None and hi is not None:
+            try:
+                hit = float(lo) <= float(actual) <= float(hi)
+            except (TypeError, ValueError):
+                hit = None
+        try:
+            prob = float(ind.get("probability"))
+        except (TypeError, ValueError):
+            prob = None
+        brier = (prob - (1.0 if hit else 0.0)) ** 2 if (prob is not None and hit is not None) else None
+
+        indicator_results.append({
+            "indicator": name,
+            "proposition": ind.get("proposition"),
+            "probability": prob,
+            "forecast_low": lo,
+            "forecast_high": hi,
+            "actual": actual,
+            "interval_hit": hit,
+            "brier": None if brier is None else round(brier, 6),
+            "block_codes": blocks,
+            "warn_codes": warns,
+            "error_attribution": sorted(_attribution(blocks + warns).keys()),
+            "process_clean": clean,
+            "verdict": _quadrant(clean, hit),
+            "note": oc.get("note") if isinstance(oc, dict) else None,
+        })
+
+    verdicts = [r["verdict"] for r in indicator_results]
+    counts = {}
+    for v in verdicts:
+        counts[v] = counts.get(v, 0) + 1
+    clean_flags = {r["process_clean"] for r in indicator_results}
+
+    if case_fatal:
+        overall = "CASE_INVALIDATED"
+    elif not indicator_results:
+        overall = "CASE_NO_INDICATORS"
+    elif len(clean_flags) > 1:
+        overall = "CASE_MIXED"
+    elif clean_flags == {True}:
+        overall = "CASE_CONSISTENT_CLEAN"
     else:
-        verdict = "PROCESS_DEFECTIVE_OUTCOME_MISS"
+        overall = "CASE_CONSISTENT_DEFECTIVE"
+
+    # 整轮归因 = case 级 + 全部指标（去重）；单指标归因见 indicator_results
+    whole_att = dict(case_att)
+    for r in indicator_results:
+        for a in r["error_attribution"]:
+            whole_att[a] = whole_att.get(a, 0) + 1
+
+    first = indicator_results[0] if indicator_results else None
+    top_verdict = first["verdict"] if first else overall
 
     return {
-        "verdict": verdict,
-        "process_clean": process_clean,
-        "process_flags": flags,
-        "warn_codes": warn_codes,
-        "error_attribution": sorted(attention.keys()),
-        "interval_hit": hit,
-        "brier": brier,
-        "notes": {
-            "LUCKY_ACCURATE": "结果正确不等于预测优秀：过程存在缺陷，命中应归因于运气。",
-            "PROCESS_GOOD_OUTCOME_MISS": "结果落在低概率情景，但过程合理且概率诚实：不得判定过程失败。",
-            "PROCESS_DEFECTIVE_OUTCOME_MISS": "过程有缺陷且未命中，按 error_attribution 分项复盘。",
-            "PROCESS_GOOD_OUTCOME_HIT": "过程与结果均达标。",
-        }[verdict],
+        # ---- 兼容字段（v0.2.1 及以前的调用方）：单指标时语义不变 ----
+        "verdict": top_verdict,
+        "process_flags": sorted(set(case_block + [c for r in indicator_results for c in r["block_codes"]])),
+        "warn_codes": sorted(set(case_warn + [c for r in indicator_results for c in r["warn_codes"]])),
+        "error_attribution": sorted(whole_att.keys()),
+        "interval_hit": first["interval_hit"] if first else None,
+        "brier": first["brier"] if (first and len(indicator_results) == 1) else None,
+        "process_clean": bool(first["process_clean"]) if first else False,
+        # ---- 新结构 ----
+        "indicator_results": indicator_results,
+        "case_level": {
+            "block_codes": case_block,
+            "warn_codes": case_warn,
+            "case_fatal_codes": case_fatal,
+            "error_attribution": sorted(case_att.keys()),
+        },
+        "case_summary": {
+            "n_indicators": len(indicator_results),
+            "n_hit": sum(1 for r in indicator_results if r["interval_hit"] is True),
+            "n_miss": sum(1 for r in indicator_results if r["interval_hit"] is False),
+            "n_unknown": sum(1 for r in indicator_results if r["interval_hit"] is None),
+            "verdict_counts": counts,
+            "overall": overall,
+            "outcome_status": (
+                "PARTIAL" if 0 < sum(1 for r in indicator_results if r["interval_hit"] is not None) < len(indicator_results)
+                else "REVEALED" if indicator_results and all(r["interval_hit"] is not None for r in indicator_results)
+                else "UNKNOWN"
+            ),
+        },
+        "notes": VERDICT_NOTES.get(overall, "") if overall.startswith("CASE_") and overall in ("CASE_INVALIDATED", "CASE_NO_INDICATORS", "CASE_MIXED") else VERDICT_NOTES.get(top_verdict, ""),
     }
 
 
@@ -566,6 +1080,10 @@ def main(argv=None) -> int:
     p_pm.add_argument("path")
     p_pm.add_argument("--json", action="store_true")
 
+    p_rv = sub.add_parser("reveal", help="揭晓记录核验（来源层级 / 口径 / 修订）")
+    p_rv.add_argument("path")
+    p_rv.add_argument("--json", action="store_true")
+
     args = ap.parse_args(argv)
 
     if args.mode == "case":
@@ -576,7 +1094,10 @@ def main(argv=None) -> int:
         for label, case in targets:
             findings = check_case(case)
             worst += findings
-            payloads.append({"step": label, "findings": [f.__dict__ for f in findings]})
+            tops = front_stage(findings)
+            payloads.append({"step": label,
+                             "findings": [f.__dict__ for f in findings],
+                             "front_stage": [f.__dict__ for f in tops]})
             if not args.json:
                 if len(targets) > 1:
                     print(f"### {label}")
@@ -584,10 +1105,32 @@ def main(argv=None) -> int:
                     print(f)
                 print(f"-- block={len(codes(findings, BLOCK))} warn={len(codes(findings, WARN))} "
                       f"lockable={'YES' if not has_block(findings) else 'NO'}")
+                if tops:
+                    print("-- 前台应只说（1—3 条，按优先级）:")
+                    for f in tops:
+                        print(f"   {priority_of(f.code)} | {f.message}")
                 print()
         if args.json:
             print(json.dumps(payloads, ensure_ascii=False, indent=2))
         return 1 if has_block(worst) else 0
+
+    if args.mode == "reveal":
+        payload = _load(args.path)
+        if isinstance(payload, dict) and isinstance(payload.get("steps"), list):
+            cases = [s["case"] for s in payload["steps"] if isinstance(s.get("case"), dict)]
+        else:
+            cases = [payload]
+        allf, dump = [], []
+        for case in cases:
+            findings = check_reveal(case)
+            allf += findings
+            dump.append({"findings": [f.__dict__ for f in findings]})
+            if not args.json:
+                for f in findings:
+                    print(f)
+        if args.json:
+            print(json.dumps(dump, ensure_ascii=False, indent=2))
+        return 1 if has_block(allf) else 0
 
     if args.mode == "reply":
         findings = check_reply(args.state, args.text, args.cutoff)
@@ -614,15 +1157,31 @@ def main(argv=None) -> int:
             if not args.json:
                 if len(targets) > 1:
                     print(f"### {label}")
-                print(f"verdict               : {result['verdict']}")
-                print(f"process_clean         : {result['process_clean']}")
-                print(f"process_flags         : {', '.join(result['process_flags']) or '(none)'}")
-                print(f"error_attribution     : {', '.join(result['error_attribution']) or '(none)'}")
-                print(f"interval_hit          : {result['interval_hit']}")
-                print(f"brier                 : {result['brier']}")
-                print(f"notes                 : {result['notes']}")
+                cs, cl = result["case_summary"], result["case_level"]
+                print(f"case_summary.overall : {cs['overall']}")
+                print(f"outcome_status       : {cs['outcome_status']}  "
+                      f"(hit={cs['n_hit']} miss={cs['n_miss']} unknown={cs['n_unknown']})")
+                if cl["case_fatal_codes"]:
+                    print(f"case_fatal           : {', '.join(cl['case_fatal_codes'])}")
+                if cl["block_codes"]:
+                    print(f"case_level BLOCK     : {', '.join(sorted(set(cl['block_codes'])))}")
+                print("--- 逐指标 ---")
+                for r in result["indicator_results"]:
+                    print(f"  {r['indicator']}")
+                    print(f"    proposition : {r['proposition']}")
+                    print(f"    probability : {r['probability']}")
+                    print(f"    forecast    : [{r['forecast_low']}, {r['forecast_high']}]")
+                    print(f"    actual      : {r['actual']}  interval_hit={r['interval_hit']}  brier={r['brier']}")
+                    print(f"    verdict     : {r['verdict']}")
+                    print(f"    attribution : {', '.join(r['error_attribution']) or '(none)'}")
+                    if r["block_codes"]:
+                        print(f"    BLOCK       : {', '.join(sorted(set(r['block_codes'])))}")
+                print("--- 整轮 ---")
+                print(f"whole_attribution    : {', '.join(result['error_attribution']) or '(none)'}")
+                print(f"notes                : {result['notes']}")
                 print()
-            if not result["process_clean"]:
+            if any(not r["process_clean"] for r in result["indicator_results"]) \
+                    or result["case_level"]["case_fatal_codes"]:
                 rc = 1
         if args.json:
             print(json.dumps(results, ensure_ascii=False, indent=2))

@@ -1,0 +1,180 @@
+{
+  "id": "test-18-tri-state-mapping",
+  "title": "Test 18 · 自然语言映射清单（三态字段：true / false / unknown / 缺席）",
+  "scenario": "把 state-extraction.md 的核心原则变成可执行断言：'未检查 ≠ 已通过'。字段缺席必须报 UNCHECKED（不得默认 false）；显式写 unknown 必须报 UNKNOWN；只有显式 false 才算判定为否。",
+  "steps": [
+    {
+      "mode": "case",
+      "note": "用户明说'这块我不确定' → 映射为 \"unknown\"。",
+      "extract": {
+        "indicator[0].stock_flow_relevant": "unknown"
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": "unknown",
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_FIELD_UNKNOWN"],
+        "must_not_codes": ["GATE_FIELD_UNCHECKED"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "note": "教练还没问过这件事 → 字段缺席，必须报 UNCHECKED，而不是默认放行。",
+      "extract_absent": ["indicator[0].stock_flow_relevant"],
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_FIELD_UNCHECKED"],
+        "must_not_codes": ["GATE_FIELD_UNKNOWN"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "note": "显式判定为'不涉及存量流量' → false，闸门通过。",
+      "extract": {
+        "indicator[0].stock_flow_relevant": false
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["GATE_FIELD_UNKNOWN", "GATE_FIELD_UNCHECKED"],
+        "lockable": true
+      }
+    }
+  ]
+}

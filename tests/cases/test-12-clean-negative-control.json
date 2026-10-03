@@ -1,7 +1,8 @@
 {
   "id": "test-12-clean-negative-control",
-  "title": "Test 12 · 反向对照：干净案例不得被误拦",
+  "title": "Test 12 · 反向对照：干净案例不得被误拦（时间逻辑自洽）",
   "source": "自建（防误报对照）",
+  "note": "v0.2.2 修复：旧版本用了 cutoff=2010-12-31 配 base_period=2010，而 2010 全年数据在截点当天尚未公布 —— 现实中不可能。现改为用 2009 全年正式公布值作基期（2010-02-25 发布，早于截点）。",
   "steps": [
     {
       "mode": "case",
@@ -13,25 +14,44 @@
         "forecast_to": "2013-12-31",
         "difficulty": 1,
         "base_rate_provided": true,
-        "sources": [{ "date": "2010-05-01", "kind": "fact", "usable": true }],
+        "sources": [
+          {
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "published_at": "2010-02-25",
+            "revision_status": "initial",
+            "kind": "fact",
+            "usable": true,
+            "note": "2009 年统计公报，2010-02-25 发布，截点前已公开"
+          },
+          {
+            "data_period_start": "2010-01-01",
+            "data_period_end": "2010-06-30",
+            "published_at": "2010-07-20",
+            "revision_status": "initial",
+            "kind": "fact",
+            "usable": true,
+            "note": "上半年进度数据，截点前已公开"
+          }
+        ],
         "indicators": [
           {
             "name": "GDP",
             "kind": "flow",
-            "base_value": 600,
-            "base_period": "2010",
+            "base_value": 530,
+            "base_period": "2009",
             "base_unit": "亿元",
             "base_caliber": "当年价/全市",
-            "base_source_date": "2010-03-01",
+            "base_published_at": "2010-02-25",
             "history": [
-              { "year": 2007, "value": 380 },
-              { "year": 2008, "value": 460 },
-              { "year": 2009, "value": 530 }
+              { "year": 2006, "value": 300, "published_at": "2007-03-01" },
+              { "year": 2007, "value": 380, "published_at": "2008-02-28" },
+              { "year": 2008, "value": 460, "published_at": "2009-02-26" },
+              { "year": 2009, "value": 530, "published_at": "2010-02-25" }
             ],
-            "drivers": ["固定资产投资", "煤炭产量"],
-            "constraints": ["财政收支"],
+            "drivers": ["固定资产投资", "煤炭产量", "煤价"],
+            "constraints": ["财政收支", "产能"],
             "stock_flow_relevant": false,
-            "stock_flow_resolved": false,
             "quantity_price_relevant": true,
             "quantity_price_split": true,
             "qualitative_direction": "up",
@@ -41,10 +61,10 @@
             "center": 750,
             "probability": 0.6,
             "proposition": "P(2013年GDP ∈ [700,800] 亿元) = 60%",
-            "reasoning": "基期 600，历史三年增速 17%—21%，下调至 5%—10% 后外推三年。",
-            "failure_conditions": "若固定资产投资连续两年负增长，本区间失效。",
-            "counterargument": "资源价格上行可能使实际增速高于历史均值。",
-            "missing_info": "固定资产投资月度数据"
+            "reasoning": "基期取 2009 年正式公布值 530 亿元（2010-02-25 发布，截点前可得）。历史四年名义增速 27%→21%→15%，逐年回落；按量价拆分：实际产量增速假设降至 4%—7%，价格假设年均 −2% 至 +2%，合成名义增速 5%—10%，三年后落于 700—800 亿元。",
+            "failure_conditions": "若固定资产投资连续两年负增长，或煤炭价格年均跌幅超过 8%，本区间失效。",
+            "counterargument": "资源型城市的收入弹性高于常规城市，若价格回升，实际值可能高于 800 亿元。",
+            "missing_info": "2010 年月度固定资产投资数据；煤炭下游需求侧数据"
           }
         ]
       },
@@ -60,15 +80,21 @@
           "GATE_CONSTRAINT_MISSING",
           "GATE_STOCK_FLOW_UNRESOLVED",
           "GATE_QUANTITY_PRICE_UNRESOLVED",
+          "GATE_FIELD_UNCHECKED",
+          "GATE_FIELD_UNKNOWN",
           "GATE_QUAL_QUANT_CONFLICT",
           "FIREWALL_CONTAMINATION",
+          "FIREWALL_LOOKAHEAD_LEAKAGE",
           "PROB_UNIFORM",
           "PROB_PRECISION",
           "PROB_MISSING",
           "PROB_NO_PROPOSITION",
           "BASE_RATE_MISSING",
           "LOCK_FIELD_MISSING",
-          "EXTREME_GROWTH_UNJUSTIFIED"
+          "EXTREME_GROWTH_UNJUSTIFIED",
+          "LIMITED_HISTORY",
+          "LEVEL1_HORIZON_TOO_LONG",
+          "SOURCE_DATE_UNKNOWN"
         ]
       }
     }

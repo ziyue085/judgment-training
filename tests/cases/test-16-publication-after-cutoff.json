@@ -1,0 +1,184 @@
+{
+  "id": "test-16-publication-after-cutoff",
+  "title": "Test 16 · 发布时间晚于截点（前视泄漏 vs 污染 vs 已隔离）",
+  "scenario": "仅比较'数据所属期 ≤ 截点'是不够的。本用例区分三种情形：所属期在截点前但发布在截点后（最隐蔽的前视泄漏）、所属期与发布都在截点后（污染）、以及被正确隔离的材料。",
+  "steps": [
+    {
+      "mode": "case",
+      "note": "所属期 2010-12-31 ≤ 截点，但统计公报 2011-03 才发布 —— 截点当天根本拿不到。",
+      "extract": {
+        "case.sources[0].data_period_end": "2010-12-31",
+        "case.sources[0].published_at": "2011-03-15"
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2010 年国民经济和社会发展统计公报",
+            "published_at": "2011-03-15",
+            "data_period_start": "2010-01-01",
+            "data_period_end": "2010-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价与工业增加值弹性外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["FIREWALL_LOOKAHEAD_LEAKAGE"],
+        "must_not_codes": ["FIREWALL_CONTAMINATION"],
+        "must_front_stage_codes": ["FIREWALL_LOOKAHEAD_LEAKAGE"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "note": "所属期与发布时间都在截点之后 —— 常规污染。",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2011 年国民经济和社会发展统计公报",
+            "published_at": "2012-03-15",
+            "data_period_start": "2011-01-01",
+            "data_period_end": "2011-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价与工业增加值弹性外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["FIREWALL_CONTAMINATION"],
+        "must_not_codes": ["FIREWALL_LOOKAHEAD_LEAKAGE"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "note": "材料同样晚于截点，但已被显式标记为不可用 —— 这是正确的隔离，不应报 BLOCK。",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2011 年统计公报（已隔离，不用于本轮）",
+            "published_at": "2012-03-15",
+            "data_period_start": "2011-01-01",
+            "data_period_end": "2011-12-31",
+            "usable": false,
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价与工业增加值弹性外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_info_codes": ["FIREWALL_ISOLATED"],
+        "must_not_codes": ["FIREWALL_LOOKAHEAD_LEAKAGE", "FIREWALL_CONTAMINATION"],
+        "lockable": true
+      }
+    }
+  ]
+}

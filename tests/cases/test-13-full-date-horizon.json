@@ -1,0 +1,125 @@
+{
+  "id": "test-13-full-date-horizon",
+  "title": "Test 13 · 完整日期期限（2010-12-31 → 2013-01-01 应算 ≈2.00 年，不是 3 年）",
+  "scenario": "旧实现用年份差计算期限，2010-12-31 到 2013-01-01 被算成 3 年，导致隐含 CAGR 被系统性低估。本用例构造一个只在'正确期限'下才触发极端增速告警的数值，用以区分两条路径。",
+  "steps": [
+    {
+      "mode": "case",
+      "extract": {
+        "case.historical_cutoff": "2010-12-31",
+        "case.forecast_to": "2013-01-01",
+        "indicator[0].center": 170
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-01-01",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 160,
+            "forecast_high": 180,
+            "center": 170,
+            "probability": 0.7,
+            "proposition": "P(2013 年初地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价上行与产能投放外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_warn_codes": ["EXTREME_GROWTH_UNJUSTIFIED"],
+        "must_info_codes": ["IMPLIED_CAGR_COMPUTED"],
+        "lockable": true
+      }
+    },
+    {
+      "mode": "case",
+      "note": "对照：终点延到 2013-12-31（≈3.00 年）后同样的 170 不再触发极端增速，证明差异来自期限算法而非数值。",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 160,
+            "forecast_high": 180,
+            "center": 170,
+            "probability": 0.7,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价上行与产能投放外推",
+            "failure_conditions": "煤价回落",
+            "counterargument": "非煤产业占比低",
+            "missing_info": "在产矿井达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["EXTREME_GROWTH_UNJUSTIFIED"],
+        "must_info_codes": ["IMPLIED_CAGR_COMPUTED"],
+        "lockable": true
+      }
+    }
+  ]
+}

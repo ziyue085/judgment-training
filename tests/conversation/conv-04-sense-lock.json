@@ -1,0 +1,132 @@
+{
+  "id": "conv-04-sense-lock",
+  "title": "对话 Test 4 · 「凭感觉」阻止锁定（推导与反方字段缺失）",
+  "scenario": "用户想凭直觉直接锁定。抽取后虽然数值与概率都在，但命题、推导过程、失效条件、最强反方、最缺信息全部缺失，必须 BLOCK，不得进入 LOCK。补齐后放行。",
+  "steps": [
+    {
+      "mode": "case",
+      "utterance": "我不想写那些推导了，就凭感觉吧：财政收入能到 150 亿，区间 140 到 160，八成把握。直接锁定。",
+      "extract": {
+        "indicator[0].center": 150,
+        "indicator[0].probability": 0.8
+      },
+      "extract_absent": [
+        "indicator[0].proposition",
+        "indicator[0].reasoning",
+        "indicator[0].failure_conditions",
+        "indicator[0].counterargument",
+        "indicator[0].missing_info"
+      ],
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["财政转移支付政策", "价格周期性"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.8
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["LOCK_FIELD_MISSING", "PROB_NO_PROPOSITION"],
+        "lockable": false,
+        "must_front_stage_codes": ["PROB_NO_PROPOSITION"],
+        "max_front_stage": 3
+      }
+    },
+    {
+      "mode": "case",
+      "utterance": "好吧。命题：P(2013 年地方财政收入 > 130 亿元)。推导：按煤价与工业增加值弹性外推，2010—2013 年煤价中枢上移。失效条件：煤价跌破 400 元/吨。反方：非煤产业占比低，收入随煤价同步下坠。最缺：非煤产业税收占比。",
+      "extract": {
+        "indicator[0].proposition": "P(2013 年地方财政收入 > 130 亿元)",
+        "indicator[0].failure_conditions": "煤价跌破 400 元/吨",
+        "indicator[0].center": 150
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["财政转移支付政策", "价格周期性"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 140,
+            "forecast_high": 160,
+            "center": 150,
+            "probability": 0.8,
+            "proposition": "P(2013 年地方财政收入 > 130 亿元)",
+            "reasoning": "按煤价与工业增加值弹性外推，煤价中枢上移",
+            "failure_conditions": "煤价跌破 400 元/吨",
+            "counterargument": "非煤产业占比低，收入随煤价同步下坠",
+            "missing_info": "非煤产业税收占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["LOCK_FIELD_MISSING", "PROB_NO_PROPOSITION"],
+        "lockable": true
+      }
+    }
+  ]
+}

@@ -71,7 +71,7 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 
 ```text
 请读取 https://raw.githubusercontent.com/ziyue085/judgment-training/main/SKILL.md
-以及同仓库 references/ 目录下的 5 个文档，把它们作为我的长期指令保存下来。
+以及同仓库 references/ 目录下的 7 个文档，把它们作为我的长期指令保存下来。
 以后我说「判断力训练」时，按 SKILL.md 里的角色和流程执行。
 ```
 
@@ -119,11 +119,7 @@ python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
 ```text
 用户：开始判断力训练。
 
-教练：两个选择：城市还是企业？
-
-用户：城市。
-
-教练：截点定在 2013-12-31，对象 H 市，期限到 2016 年底，3 年。
+教练：对象：H 市（城市）。截点 2013-12-31，期限到 2016 年底，3 年。
       Level 1，最多 2 个核心指标。只能用截点当天及之前公开的信息。
       之后的事我一律不认，也不会透露。去研究吧。
 
@@ -144,6 +140,9 @@ python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
 教练：那把这个假设写进推导过程。85% 太高了，你没有基准率——
       同期同类资源型城市三年 CAGR 超过 15% 的有多少？
 ```
+
+> 默认由教练**直接出题**（对象 + 截点），不先问"你想分析哪个城市"。
+> 只有用户明确说"我想自己挑"时才进入偏好确认。
 
 完整示例（含复盘）见 [`examples/example-session.md`](examples/example-session.md)。
 
@@ -181,9 +180,39 @@ python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
 python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json
 ```
 
-该夹具触发 **36 个 BLOCK + 6 个 WARN**，`lockable=NO` —— 即新版本必须在错误进入最终预测之前将其拦住。
+该夹具触发 **39 个 BLOCK + 8 个 WARN**，`lockable=NO` —— 即新版本必须在错误进入最终预测之前将其拦住。
 
 详见 [`examples/shenmu-2010-regression-case.md`](examples/shenmu-2010-regression-case.md)。
+
+---
+
+## 本版修复（v0.2.2）
+
+一次**定向可靠性修复**。不重构架构、不新增 roadmap 大功能，只补两个工程断点：
+
+**1）自然语言 → JSON 状态。** 用户不会说 JSON。用户说"大概 100"，系统需要
+`base_value: 100`，但**单位不能猜**。新增 [`references/state-extraction.md`](references/state-extraction.md)
+给出逐字段映射表，并确立核心原则：
+
+> **未检查 ≠ 已通过。** 字段缺席表示还没有检查过，不表示检查了、结论是否。
+> 涉及存量流量/量价分解的判定字段是三态的：`true` / `false` / `"unknown"`。
+> 缺席报 `GATE_FIELD_UNCHECKED`，`"unknown"` 报 `GATE_FIELD_UNKNOWN`——两者都是 BLOCK。
+
+**2）预测结果 → 多指标可靠复盘。** 旧实现把任何结果都算在第一个指标上，
+且把"没有结果"误判成"没命中"。现在：
+
+- 逐指标裁决 + 案例级汇总（`indicator_results[]` / `case_summary`）
+- **未知 ≠ 未命中**：新增 `PROCESS_GOOD_OUTCOME_UNKNOWN` 等三态结果
+- 作用域隔离：某指标的问题不污染其他指标，除非是 case 级致命缺陷
+- 新增 [`references/reveal-protocol.md`](references/reveal-protocol.md)：来源层级、
+  口径核验、统计修订（`as_reported_then` 与 `latest_revised` 必须同时保留）
+
+另外还修了三处：**完整日期期限算法**（`2010-12-31 → 2013-01-01` 是 2.00 年而非 3 年）、
+**历史序列门槛的替代路径**（有机制可降级为 WARN）、
+**信息防火墙双层时间**——区分数据所属期与发布时间，新增 `FIREWALL_LOOKAHEAD_LEAKAGE`
+拦截"所属期在截点前、但截点当天还没公布"的隐蔽前视泄漏。
+
+前台呈现也改为**优先级 P0—P7**：一次只说最多 3 条最关键发现，不再把 39 条 BLOCK 摊给用户。
 
 ---
 
@@ -191,25 +220,29 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 
 ```text
 judgment-training/
-├─ SKILL.md                          主文件（精炼，3471 字符 / 约 7.2 KB）
+├─ SKILL.md                          主文件（精炼，4130 字符）
 ├─ README.md
 ├─ CHANGELOG.md
 ├─ LICENSE
 ├─ .gitignore
 ├─ references/                       按需加载的方法论
-│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新
-│  ├─ coaching-rules.md              职责边界 / 防火墙话术 / 越界场景
+│  ├─ methodology.md                 训练目标 / 难度 / 提问设计 / 动态更新 / 复盘六象限
+│  ├─ coaching-rules.md              职责边界 / 防火墙话术 / 越界场景 / 前台纪律
 │  ├─ probability-calibration.md     命题化 / 逻辑一致性 / 校准评分
-│  ├─ quantitative-forecasting.md    准入十查 / 分解族 / 隐含 CAGR / 基准率
-│  └─ prediction-record-template.md  档案 schema / 提交字段 / 复盘模板
+│  ├─ quantitative-forecasting.md    准入十查 / 分解族 / 隐含 CAGR / 基准率 / P0—P7
+│  ├─ prediction-record-template.md  档案 schema / 提交字段 / 多指标复盘模板
+│  ├─ state-extraction.md            自然语言 → 结构化状态映射（未检查 ≠ 已通过）
+│  └─ reveal-protocol.md             揭晓协议：来源层级 / 口径核验 / 统计修订
 ├─ examples/
 │  ├─ example-session.md             一轮完整对话（虚构对象）
 │  └─ shenmu-2010-regression-case.md 失败案例与拦截映射
 ├─ tests/
-│  ├─ test-cases.md                  12 个用例说明
+│  ├─ test-cases.md                  18 个用例说明
+│  ├─ conversation-cases.md          4 个对话级映射用例说明
 │  ├─ regression-checklist.md        自动 + 变异 + 人工回归清单
-│  ├─ run_regression.py              测试运行器
-│  └─ cases/*.json                   12 个可执行夹具
+│  ├─ run_regression.py              测试运行器（含 --conversation）
+│  ├─ cases/*.json                   18 个可执行夹具
+│  └─ conversation/*.json            4 个自然语言映射用例
 ├─ scripts/
 │  └─ judge_checks.py                确定性规则层
 └─ docs/
@@ -221,18 +254,19 @@ judgment-training/
 ## 运行测试
 
 ```bash
-python tests/run_regression.py            # 12 tests / 20 steps
-python tests/run_regression.py --verbose  # 打印每步实际发现
+python tests/run_regression.py                 # 18 tests / 41 steps
+python tests/run_regression.py --verbose       # 打印每步实际发现
+python tests/run_regression.py --conversation  # 追加 4 个对话级映射用例
 ```
 
 期望输出：
 
 ```text
-tests: 12  steps: 20/20 passed  failed_tests: 0
+tests: 18  steps: 41/41 passed  failed_tests: 0  (含对话映射 4 个)
 REGRESSION_STATUS=PASS
 ```
 
-仅"全部通过"不构成证据。`tests/regression-checklist.md` 的 B 节要求做**变异测试**：故意破坏三处闸门，确认测试会转红（3/3 被捕获）。方法见 [`docs/design-notes.md`](docs/design-notes.md) 附录 A。
+仅"全部通过"不构成证据。`tests/regression-checklist.md` 的 B 节要求做**变异测试**：故意破坏四处闸门，确认测试会转红（4/4 被捕获）。方法见 [`docs/design-notes.md`](docs/design-notes.md) 附录 A。
 
 ---
 
@@ -240,7 +274,10 @@ REGRESSION_STATUS=PASS
 
 - 脚本只覆盖**可判定**规则；提问质量与语气依赖人工回归
 - 阈值（CAGR 25%、区间相对宽度 5% 等）为经验取值，非统计结论
-- 信息防火墙依赖用户如实申报材料日期
+- 信息防火墙依赖用户如实申报材料日期与**发布时间**（不只是所属期）
+- 自然语言抽取依赖教练判断：脚本只能断言"抽取后的字段"是否符合规则，
+  `state-extraction.md` 提供的是**规范**而非自动解析器
+- 来源层级判定基于关键词匹配，措辞差异可能漏判（故为 WARN 而非 BLOCK）
 - 持久化依赖运行环境；档案默认写用户工作区
 
 完整列表见 [`docs/design-notes.md`](docs/design-notes.md) 第五节。

@@ -1,0 +1,138 @@
+{
+  "id": "conv-01-stock-flow",
+  "title": "对话 Test 1 · 存量流量识别（自然语言里把储量当成了产量）",
+  "scenario": "用户一句话同时抛出「储量」与「产量」两个概念。教练必须识别该指标涉及存量流量区分（stock_flow_relevant=true），且不得因为用户没明说就把 resolved 默认成 false。",
+  "steps": [
+    {
+      "mode": "case",
+      "utterance": "神木煤特别多，我记得储量有几百亿吨，我猜 2013 年产量能到 4 亿吨，把握七成吧。",
+      "extract": {
+        "case.object_type": "city",
+        "case.historical_cutoff": "2010-12-31",
+        "indicator[0].kind": "quantity",
+        "indicator[0].stock_flow_relevant": true,
+        "indicator[0].probability": 0.7
+      },
+      "extract_absent": [
+        "indicator[0].stock_flow_resolved"
+      ],
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 0.9},
+              {"period": "2007", "value": 1.1},
+              {"period": "2008", "value": 1.3},
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["铁路运力", "环保限产"],
+            "stock_flow_relevant": true,
+            "qualitative_direction": "up",
+            "forecast_low": 3.5,
+            "forecast_high": 4.5,
+            "center": 4.0,
+            "probability": 0.7,
+            "extreme_justified": true,
+            "proposition": "P(2013 年原煤产量 > 3 亿吨)",
+            "reasoning": "按在建矿井投产节奏与达产率外推",
+            "failure_conditions": "煤价跌破成本线导致大面积限产",
+            "counterargument": "铁路运力不足使产量无法外运，产量增量虚高",
+            "missing_info": "在建矿井的实际投产时间"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_STOCK_FLOW_UNRESOLVED"],
+        "lockable": false,
+        "must_front_stage_codes": ["GATE_STOCK_FLOW_UNRESOLVED"],
+        "max_front_stage": 3
+      }
+    },
+    {
+      "mode": "case",
+      "utterance": "我说的是产量（流量），不是储量（存量）——储量那个数是背景，不进模型。",
+      "extract": {
+        "indicator[0].stock_flow_relevant": true,
+        "indicator[0].stock_flow_resolved": true
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 0.9},
+              {"period": "2007", "value": 1.1},
+              {"period": "2008", "value": 1.3},
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["铁路运力", "环保限产"],
+            "stock_flow_relevant": true,
+            "stock_flow_resolved": true,
+            "qualitative_direction": "up",
+            "forecast_low": 3.5,
+            "forecast_high": 4.5,
+            "center": 4.0,
+            "probability": 0.7,
+            "extreme_justified": true,
+            "proposition": "P(2013 年原煤产量 > 3 亿吨)",
+            "reasoning": "按在建矿井投产节奏与达产率外推",
+            "failure_conditions": "煤价跌破成本线导致大面积限产",
+            "counterargument": "铁路运力不足使产量无法外运，产量增量虚高",
+            "missing_info": "在建矿井的实际投产时间"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": [
+          "GATE_STOCK_FLOW_UNRESOLVED",
+          "GATE_FIELD_UNCHECKED",
+          "GATE_FIELD_UNKNOWN"
+        ],
+        "lockable": true
+      }
+    }
+  ]
+}

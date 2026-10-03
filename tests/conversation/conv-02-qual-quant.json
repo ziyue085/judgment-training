@@ -1,0 +1,129 @@
+{
+  "id": "conv-02-qual-quant",
+  "title": "对话 Test 2 · 定性定量矛盾（嘴上说增长，数字却往下）",
+  "scenario": "用户口头判断「会继续增长」，抽取为 qualitative_direction=up；但给出的预测值低于基期。量化检查必须捕捉矛盾并 BLOCK，不得因为用户语气自信就放过。",
+  "steps": [
+    {
+      "mode": "case",
+      "utterance": "我觉得神木财政会缓一缓，但还是往上走，2013 年大概 85 亿吧。",
+      "extract": {
+        "indicator[0].qualitative_direction": "up",
+        "indicator[0].base_value": 100,
+        "indicator[0].center": 85
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["财政转移支付政策", "价格周期性"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 80,
+            "forecast_high": 90,
+            "center": 85,
+            "probability": 0.75,
+            "proposition": "P(2013 年地方财政收入 > 110 亿元)",
+            "reasoning": "按煤炭价格与工业增加值弹性外推",
+            "failure_conditions": "煤价大幅回落拖累税收",
+            "counterargument": "非煤产业补位，收入并未随煤价下坠",
+            "missing_info": "非煤产业税收占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_QUAL_QUANT_CONFLICT"],
+        "lockable": false,
+        "must_front_stage_codes": ["GATE_QUAL_QUANT_CONFLICT"]
+      }
+    },
+    {
+      "mode": "case",
+      "utterance": "哦对，我说的是往上走，那数字应该反过来——我改成 130 亿，区间 120 到 140。",
+      "extract": {
+        "indicator[0].qualitative_direction": "up",
+        "indicator[0].center": 130
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["财政转移支付政策", "价格周期性"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 120,
+            "forecast_high": 140,
+            "center": 130,
+            "probability": 0.75,
+            "proposition": "P(2013 年地方财政收入 > 110 亿元)",
+            "reasoning": "按煤炭价格与工业增加值弹性外推",
+            "failure_conditions": "煤价大幅回落拖累税收",
+            "counterargument": "非煤产业补位，收入并未随煤价下坠",
+            "missing_info": "非煤产业税收占比"
+          }
+        ]
+      },
+      "expect": {
+        "must_not_codes": ["GATE_QUAL_QUANT_CONFLICT", "GATE_QUAL_QUANT_TENSION"],
+        "lockable": true
+      }
+    }
+  ]
+}

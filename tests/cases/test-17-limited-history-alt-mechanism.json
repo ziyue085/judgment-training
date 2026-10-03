@@ -1,0 +1,168 @@
+{
+  "id": "test-17-limited-history-alt-mechanism",
+  "title": "Test 17 · 历史序列不足与替代推导路径",
+  "scenario": "MIN_HISTORY_POINTS=3 不应成为不可通融的死规则。若用户走替代推导路径（产能 / 订单 / 份额 / 机制等）并写清机制，应从 BLOCK 降级为 LIMITED_HISTORY(WARN)，并因历史不足而压低概率上限。声明了路径却不写机制，仍按 BLOCK。",
+  "steps": [
+    {
+      "mode": "case",
+      "note": "只有 1 个历史时点，但走了 capacity 路径且写明机制 —— WARN 而非 BLOCK。概率 0.72 ≥ 0.70 触发上限告警。",
+      "extract": {
+        "indicator[0].history_basis": "capacity",
+        "indicator[0].alternative_mechanism": "按在产矿井设计产能 × 达产率",
+        "indicator[0].probability": 0.72
+      },
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "capacity",
+            "alternative_mechanism": "按在产矿井设计产能 × 达产率",
+            "drivers": ["矿井设计产能", "达产率"],
+            "constraints": ["铁路运力"],
+            "stock_flow_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 2.0,
+            "forecast_high": 2.4,
+            "center": 2.2,
+            "probability": 0.72,
+            "proposition": "P(2013 年原煤产量 > 1.8 亿吨)",
+            "reasoning": "按在产矿井设计产能与达产率推导，历史序列不适用",
+            "failure_conditions": "达产率不达预期",
+            "counterargument": "运力不足使产量无法外运",
+            "missing_info": "各矿井实际达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_warn_codes": ["LIMITED_HISTORY", "LIMITED_HISTORY_PROB_TOO_HIGH"],
+        "must_not_codes": ["GATE_NO_HISTORY_SERIES"],
+        "lockable": true
+      }
+    },
+    {
+      "mode": "case",
+      "note": "声明走 capacity 路径，却没写是什么机制 —— 视同缺口，仍 BLOCK。",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "capacity",
+            "drivers": ["矿井设计产能"],
+            "constraints": ["铁路运力"],
+            "stock_flow_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 2.0,
+            "forecast_high": 2.4,
+            "center": 2.2,
+            "probability": 0.6,
+            "proposition": "P(2013 年原煤产量 > 1.8 亿吨)",
+            "reasoning": "按产能推导",
+            "failure_conditions": "达产率不达预期",
+            "counterargument": "运力不足",
+            "missing_info": "达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_NO_HISTORY_SERIES"],
+        "must_not_codes": ["LIMITED_HISTORY"],
+        "lockable": false
+      }
+    },
+    {
+      "mode": "case",
+      "note": "既无足够历史序列，也未声明替代路径 —— 常规 BLOCK。",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "indicators": [
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "trend",
+            "drivers": ["矿井设计产能"],
+            "constraints": ["铁路运力"],
+            "stock_flow_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 2.0,
+            "forecast_high": 2.4,
+            "center": 2.2,
+            "probability": 0.6,
+            "proposition": "P(2013 年原煤产量 > 1.8 亿吨)",
+            "reasoning": "按产能推导",
+            "failure_conditions": "达产率不达预期",
+            "counterargument": "运力不足",
+            "missing_info": "达产率"
+          }
+        ]
+      },
+      "expect": {
+        "must_block_codes": ["GATE_NO_HISTORY_SERIES"],
+        "lockable": false
+      }
+    }
+  ]
+}

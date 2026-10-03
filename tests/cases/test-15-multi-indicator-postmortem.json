@@ -1,0 +1,135 @@
+{
+  "id": "test-15-multi-indicator-postmortem",
+  "title": "Test 15 · 多指标复盘（逐指标 hit / miss / unknown）",
+  "scenario": "三个指标，结果分别命中、未命中、未知。旧实现只用 indicators[0] 判定整轮，会漏掉其余指标。本用例要求逐指标裁决 + 案例级汇总，且不得用一个总分掩盖差异。",
+  "steps": [
+    {
+      "mode": "postmortem",
+      "case": {
+        "object_type": "city",
+        "historical_cutoff": "2010-12-31",
+        "forecast_to": "2013-12-31",
+        "base_rate_provided": true,
+        "sources": [
+          {
+            "name": "神木县 2009 年国民经济和社会发展统计公报",
+            "published_at": "2010-03-15",
+            "data_period_start": "2009-01-01",
+            "data_period_end": "2009-12-31",
+            "revision_status": "final"
+          }
+        ],
+        "outcomes": {
+          "地区生产总值": {"actual": 500, "note": "2013 年统计公报数值落在区间内"},
+          "地方财政收入": {"actual": 150, "note": "煤价回落后收入低于区间下限"}
+        },
+        "indicators": [
+          {
+            "name": "地区生产总值",
+            "kind": "flow",
+            "base_value": 300,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 120},
+              {"period": "2007", "value": 180},
+              {"period": "2008", "value": 250},
+              {"period": "2009", "value": 300}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "固定资产投资"],
+            "constraints": ["运力瓶颈"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 480,
+            "forecast_high": 520,
+            "center": 500,
+            "probability": 0.6,
+            "proposition": "P(2013 年 GDP > 420 亿元)",
+            "reasoning": "按煤价与投资外推",
+            "failure_conditions": "煤价腰斩",
+            "counterargument": "煤价高位难持续",
+            "missing_info": "在建项目投产节奏"
+          },
+          {
+            "name": "原煤产量",
+            "kind": "quantity",
+            "base_value": 1.5,
+            "base_unit": "亿吨",
+            "base_caliber": "全县、原煤",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 0.9},
+              {"period": "2007", "value": 1.1},
+              {"period": "2008", "value": 1.3},
+              {"period": "2009", "value": 1.5}
+            ],
+            "history_basis": "trend",
+            "drivers": ["矿井投产", "煤炭价格"],
+            "constraints": ["铁路运力"],
+            "stock_flow_relevant": false,
+            "qualitative_direction": "up",
+            "forecast_low": 2.0,
+            "forecast_high": 2.4,
+            "center": 2.2,
+            "probability": 0.75,
+            "proposition": "P(2013 年原煤产量 > 1.8 亿吨)",
+            "reasoning": "按在建矿井达产节奏外推",
+            "failure_conditions": "大面积限产",
+            "counterargument": "运力不足导致虚假产量",
+            "missing_info": "在建矿井实际投产时间"
+          },
+          {
+            "name": "地方财政收入",
+            "kind": "flow",
+            "base_value": 100,
+            "base_unit": "亿元",
+            "base_caliber": "全县、当年价",
+            "base_period": "2009",
+            "base_published_at": "2010-03-15",
+            "history": [
+              {"period": "2006", "value": 45},
+              {"period": "2007", "value": 62},
+              {"period": "2008", "value": 82},
+              {"period": "2009", "value": 100}
+            ],
+            "history_basis": "trend",
+            "drivers": ["煤炭价格", "工业增加值"],
+            "constraints": ["转移支付政策"],
+            "stock_flow_relevant": false,
+            "quantity_price_relevant": true,
+            "quantity_price_split": true,
+            "qualitative_direction": "up",
+            "forecast_low": 170,
+            "forecast_high": 190,
+            "center": 180,
+            "probability": 0.9,
+            "proposition": "P(2013 年地方财政收入 > 150 亿元)",
+            "reasoning": "按煤价与工业增加值弹性外推",
+            "failure_conditions": "煤价大幅回落",
+            "counterargument": "非煤产业补位",
+            "missing_info": "非煤产业税收占比"
+          }
+        ]
+      },
+      "expect": {
+        "verdict": "PROCESS_GOOD_OUTCOME_HIT",
+        "indicator_verdicts": [
+          "PROCESS_GOOD_OUTCOME_HIT",
+          "PROCESS_GOOD_OUTCOME_UNKNOWN",
+          "PROCESS_GOOD_OUTCOME_MISS"
+        ],
+        "case_summary_overall": "CASE_CONSISTENT_CLEAN",
+        "outcome_status": "PARTIAL",
+        "n_hit": 1,
+        "n_miss": 1,
+        "n_unknown": 1
+      }
+    }
+  ]
+}

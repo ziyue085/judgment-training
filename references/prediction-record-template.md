@@ -37,32 +37,42 @@ version: V1                   # V1 / V2 / ...
 base_rate_provided: false
 
 sources:
-  - date: 2010-11-20
-    kind: fact               # fact | opinion | inference | assumption
-    note: 截点前公开材料
+  - name: 神木县 2009 年国民经济和社会发展统计公报
+    kind: fact                   # fact | opinion | inference | assumption
+    data_period_start: 2009-01-01
+    data_period_end: 2009-12-31  # 数据「讲的是哪一段时间」
+    published_at: 2010-03-15     # 数据「什么时候能被看到」——防火墙比较的是这个
+    revision_status: final       # initial | revised | final | unknown
     usable: true
-  - date: 2013-05-01
+    available_at_cutoff: true
+    note: 截点前公开
+  - name: 神木县 2011 年国民经济和社会发展统计公报
     kind: post_cutoff
-    note: 截点后材料，已隔离
-    usable: false
+    data_period_end: 2011-12-31
+    published_at: 2012-03-15
+    usable: false                # 已隔离：报 FIREWALL_ISOLATED(INFO)，不报 BLOCK
+    note: 截点后材料
 
 indicators:
   - name: GDP
-    kind: flow               # flow | stock | ratio | price | quantity | count
+    kind: flow                   # flow | stock | quantity | price | ratio | count
     base_value: null
     base_period: "2010"
     base_unit: 亿元
     base_caliber: 当年价/全市
-    base_source_date: null
-    history: []              # [{year, value}]
+    base_published_at: null      # 基期值的公开时间（与 base_period 是两件事）
+    history: []                  # [{period, value, published_at?}]
+    history_basis: trend         # trend | alternative | mechanism | capacity | order | share | contract | admin
+    alternative_mechanism: null  # history_basis 非 trend 时必填；写了路径却不写机制 → 仍 BLOCK
     drivers: []
     constraints: []
-    stock_flow_relevant: false
-    stock_flow_resolved: false
-    quantity_price_relevant: true
-    quantity_price_split: false
-    qualitative_direction: up   # up | flat | down | uncertain
-    forecast_form: range        # range | point
+    # 三态字段：true / false / "unknown"。**缺席 = 未检查 ≠ 已通过**，不得默认 false
+    stock_flow_relevant: unknown
+    stock_flow_resolved: null    # relevant=true 时必须显式 true
+    quantity_price_relevant: unknown
+    quantity_price_split: null   # relevant=true 时必须显式 true
+    qualitative_direction: up    # up | flat | down | uncertain
+    forecast_form: range         # range | point
     forecast_low: null
     forecast_high: null
     center: null
@@ -72,6 +82,7 @@ indicators:
     failure_conditions: null
     counterargument: null
     missing_info: null
+    extreme_justified: null      # 隐含 CAGR > 25% 时的罕见机制说明
 
 prob_relations:
   - a: "GDP > 1000"
@@ -88,7 +99,22 @@ exclusive_sets:
 checks:
   findings: []                # judge_checks.py 输出
 
-outcome: null
+# 结果记录：多指标按指标名映射；单指标可退化为顶层 outcome: {...}
+outcomes:
+  地区生产总值:
+    actual_value: null
+    actual_unit: 亿元
+    actual_caliber: 当年价/全市     # 必须与 base_caliber 一致，否则 REVEAL_CALIBER_MISMATCH (BLOCK)
+    actual_period: "2013"
+    source: 2013 年国民经济和社会发展统计公报  # 城市优先公报/年鉴/官方库；企业优先年报/交易所
+    published_at: 2014-03-15
+    revision_status: revised        # initial | revised | final | unknown
+    as_reported_then: null          # 当时公布值（revised/final 时必填）
+    latest_revised: null            # 最新修订值
+    actual: null                    # 复盘用数值（可与 actual_value 相同）
+    interval_hit: null
+    note: null
+
 postmortem: null
 principle: null
 ```
@@ -160,12 +186,30 @@ updates:
 
 ```yaml
 postmortem:
-  outcome:
-    actual: null
-    actual_source: null
-    interval_hit: null
-    brier: null
-  scores:                      # 每项 A/B/C/D + 必须写原因
+  # 结果来源：档案顶层的 outcomes{指标名: {...}}；单指标案例可用顶层 outcome: {...}
+  # 若没有任何结果记录 → 一律按「结果未知」裁决，不得当成「未命中」
+  indicator_results:          # 由 judge_checks.py 逐指标生成
+    - indicator: 地区生产总值
+      proposition: P(2013 年 GDP > 420 亿元)
+      probability: 0.60
+      forecast_low: 480
+      forecast_high: 520
+      actual: 500
+      interval_hit: true       # true | false | null(=未知)
+      brier: 0.16
+      block_codes: []
+      warn_codes: []
+      error_attribution: []
+      process_clean: true
+      verdict: PROCESS_GOOD_OUTCOME_HIT
+  case_summary:                # 案例级汇总
+    n_indicators: 3
+    n_hit: 1
+    n_miss: 1
+    n_unknown: 1
+    overall: CASE_MIXED        # 见下表
+    outcome_status: PARTIAL    # REVEALED | PARTIAL | UNKNOWN
+  scores:                      # 每项 A/B/C/D + 必须写原因（逐指标或整轮）
     - item: 信息搜集完整性
       grade: null
       reason: null
@@ -197,9 +241,12 @@ postmortem:
       grade: null
       reason: null
   error_attribution: []        # 见下表
-  verdict: null                # 见 judge_checks.py postmortem
+  verdict: null                # 单指标 = 该指标裁决；多指标见 case_summary.overall
   transferable_principle: null # 必须由用户自己写
 ```
+
+> **作用域隔离**：某个指标的过程缺陷不得污染其他指标的过程评价。
+> 唯一例外是 case 级致命缺陷（`CUTOFF_NOT_SET` / 信息污染 / 前视泄漏）——那会让整轮作废。
 
 ### 错误来源分类
 
@@ -221,10 +268,22 @@ postmortem:
 |---|---|---|
 | 无严重缺陷 | 命中 | `PROCESS_GOOD_OUTCOME_HIT` |
 | 无严重缺陷 | 未命中（含落入低概率情景） | `PROCESS_GOOD_OUTCOME_MISS` —— **不得因结果错判过程失败** |
+| 无严重缺陷 | **未知（未揭晓 / 未提供结果）** | `PROCESS_GOOD_OUTCOME_UNKNOWN` —— **未知 ≠ 未命中** |
 | 有严重缺陷 | 命中 | `LUCKY_ACCURATE` —— **结果对不等于预测好** |
 | 有严重缺陷 | 未命中 | `PROCESS_DEFECTIVE_OUTCOME_MISS` |
+| 有严重缺陷 | **未知** | `PROCESS_DEFECTIVE_OUTCOME_UNKNOWN` —— 缺陷足以定论"当时不该锁定"，无需知道结果 |
 
 其中"严重缺陷"指存在 `BLOCK` 级发现却仍被锁定，或事后归因中含 `REASONING` / `BASE_RATE_IGNORED` / `CALIBER` 三类之一。
+
+### 案例级汇总（`case_summary.overall`）
+
+| 取值 | 含义 |
+|---|---|
+| `CASE_INVALIDATED` | 存在使整轮作废的 case 级缺陷（信息污染 / 前视泄漏 / 未设截点） |
+| `CASE_NO_INDICATORS` | 案例不含指标，无法复盘 |
+| `CASE_MIXED` | 各指标过程质量不一致——**必须逐指标评价，不得用一个总分掩盖差异** |
+| `CASE_CONSISTENT_CLEAN` | 各指标均无明显缺陷 |
+| `CASE_CONSISTENT_DEFECTIVE` | 各指标均存在缺陷 |
 
 ---
 

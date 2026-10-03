@@ -3,8 +3,9 @@
 > 每个用例都对应 `tests/cases/` 下的一个可执行夹具。全部由 `tests/run_regression.py` 断言。
 
 ```bash
-python tests/run_regression.py            # 全部用例
+python tests/run_regression.py            # 全部 JSON 夹具
 python tests/run_regression.py --verbose  # 打印每个 step 的实际发现
+python tests/run_regression.py --conversation   # 追加对话级映射用例
 python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.json
 ```
 
@@ -26,6 +27,23 @@ python scripts/judge_checks.py case tests/cases/test-11-shenmu-2010-regression.j
 | 10 | AI 抢答 | `test-10-ai-answer-giving.json` | 拦截抢答、剧透、问题过多、夸奖 |
 | 11 | 神木回归 | `test-11-shenmu-2010-regression.json` | 第一轮 8 类问题全部被拦 |
 | 12 | 反向对照 | `test-12-clean-negative-control.json` | 干净案例**不得**被误拦 |
+| 13 | 完整日期期限 | `test-13-full-date-horizon.json` | 按天折算期限，禁止年份相减 |
+| 14 | 结果未知 | `test-14-outcome-unknown.json` | `*_OUTCOME_UNKNOWN`，未知 ≠ 未命中 |
+| 15 | 多指标复盘 | `test-15-multi-indicator-postmortem.json` | 逐指标 hit / miss / unknown + 案例级汇总 |
+| 16 | 发布时间晚于截点 | `test-16-publication-after-cutoff.json` | 前视泄漏 / 污染 / 已隔离 三种情形分开 |
+| 17 | 历史不足与替代路径 | `test-17-limited-history-alt-mechanism.json` | 有机制降级 WARN，无机制仍 BLOCK |
+| 18 | 三态字段映射 | `test-18-tri-state-mapping.json` | `true`/`false`/`"unknown"`/缺席 四种处置 |
+
+### 对话级用例（`tests/conversation/`，需 `--conversation`）
+
+| # | 用例 | 夹具 | 期望行为 |
+|---|---|---|---|
+| C1 | 存量流量识别 | `conv-01-stock-flow.json` | 不从"没提到"推断出 `false` |
+| C2 | 定性定量矛盾 | `conv-02-qual-quant.json` | 语气自信不放宽检查 |
+| C3 | 统一概率 | `conv-03-uniform-85.json` | 三个指标同一概率 → `PROB_UNIFORM` |
+| C4 | 凭感觉锁定 | `conv-04-sense-lock.json` | 缺命题与推导字段 → 不可锁定 |
+
+说明见 `tests/conversation-cases.md`。
 
 ---
 
@@ -153,6 +171,84 @@ GDP > 900：60%
 
 一个完全合格的 Level 1 案例：基期、口径、单位、历史序列、驱动、约束、量价拆分、命题、四个提交字段、基准率齐备。
 
-**期望**：0 BLOCK、0 WARN、`lockable=YES`，且不得出现 17 个已知闸门码中的任何一个。
+**期望**：0 BLOCK、0 WARN、`lockable=YES`，且不得出现任何已知闸门码（夹具列出的 23 项 `must_not_codes`）。
 
 **意义**：没有这个用例，闸门可以靠"全部拦截"通过所有测试。
+
+---
+
+## 用例 13 · 完整日期期限
+
+截点 `2010-12-31`，终点 `2013-01-01`。按年份差会算成 3 年，实际只有 732 天 ≈ **2.00 年**。
+
+夹具构造了一个只在"正确期限"下才触发 `EXTREME_GROWTH_UNJUSTIFIED` 的数值（基期 100、中心 170）：
+
+- 正确（≈2.00 年）：CAGR ≈ 30.3% > 25% → 触发 WARN ✔
+- 错误（3 年）：CAGR ≈ 19.3% < 25% → 不触发 ✘
+
+**对照 step**：把终点改到 `2013-12-31`（≈3.00 年）后同样数值不再触发，证明差异来自期限算法本身。
+
+---
+
+## 用例 14 · 结果未知
+
+过程干净、但没有提供任何结果记录。
+
+**正确行为**：`PROCESS_GOOD_OUTCOME_UNKNOWN`，`outcome_status=UNKNOWN`，`n_unknown=1`。
+**错误行为**：因为没有命中记录就判成 `PROCESS_GOOD_OUTCOME_MISS`。
+
+**核心原则**：未知 ≠ 未命中。
+
+---
+
+## 用例 15 · 多指标复盘
+
+三个指标，结果分别为命中、未知、未命中。
+
+**正确行为**：
+- `indicator_verdicts = [HIT, UNKNOWN, MISS]`
+- `n_hit=1 n_miss=1 n_unknown=1`，`outcome_status=PARTIAL`
+- `case_summary.overall = CASE_CONSISTENT_CLEAN`
+
+**错误行为**：只评价 `indicators[0]`，或用一个总分掩盖指标间差异。
+
+---
+
+## 用例 16 · 发布时间晚于截点
+
+三种情形必须分开：
+
+| 情形 | 所属期 | 发布 | 期望 |
+|---|---|---|---|
+| 前视泄漏 | ≤ 截点 | > 截点 | `FIREWALL_LOOKAHEAD_LEAKAGE`（BLOCK） |
+| 污染 | > 截点 | > 截点 | `FIREWALL_CONTAMINATION`（BLOCK） |
+| 已隔离 | > 截点 | > 截点 | `FIREWALL_ISOLATED`（INFO），`lockable=YES` |
+
+**核心原则**：所属期在截点之前 ≠ 截点当天已经公开。最典型的是"2010 年全年 GDP"——
+该值通常 2011 年才发布。
+
+---
+
+## 用例 17 · 历史序列不足与替代推导路径
+
+| step | 配置 | 期望 |
+|---|---|---|
+| 1 | `history_basis=capacity` + 写明机制 + 概率 0.72 | `LIMITED_HISTORY` + `LIMITED_HISTORY_PROB_TOO_HIGH`（均 WARN），**不** BLOCK |
+| 2 | `history_basis=capacity` 但无机制 | `GATE_NO_HISTORY_SERIES`（BLOCK） |
+| 3 | `history_basis=trend`，仅 1 个时点 | `GATE_NO_HISTORY_SERIES`（BLOCK） |
+
+**核心原则**：规则可以通融，但通融必须换来"说清机制"与"降低概率"。
+
+---
+
+## 用例 18 · 三态字段映射
+
+把 `state-extraction.md` 的核心原则变成可执行断言：
+
+| step | `stock_flow_relevant` | 期望 |
+|---|---|---|
+| 1 | `"unknown"` | `GATE_FIELD_UNKNOWN`（BLOCK） |
+| 2 | **缺席** | `GATE_FIELD_UNCHECKED`（BLOCK） |
+| 3 | `false` | 通过，`lockable=YES` |
+
+**核心原则**：未检查 ≠ 已通过。字段缺席不得被默认成 `false`。
