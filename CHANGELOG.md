@@ -4,6 +4,29 @@
 
 ---
 
+## [0.2.1] — 2026-10-03
+
+### Added
+
+- README 新增 **「一句话安装」**：给出可直接复制给任意 AI Agent 的自然语言安装指令，含纯对话型 AI（不能执行命令）的「读取 URL 作为长期指令」变体，以及各 Agent 技能目录对照表
+- README 补充依赖说明（Python optional but recommended）与安装后自检命令
+
+### Changed
+
+- 仓库名由 `---` 改为 `judgment-training`；README 的 clone 地址由占位符换成真实地址
+- 安装方式的定位从"给用户跑脚本"改为"给 AI 一句话"：安装的本质是把目录放进技能目录，交给 AI 自己完成比让用户执行脚本更通用
+
+### Fixed
+
+- 记录 GitHub 会用短横线 sanitize 中文仓库名的实操坑（实测"判断力训练"变成字面 `---`），写入 `docs/design-notes.md` 人工作业提示
+
+### Removed
+
+- 放弃两个 shell 安装脚本（`scripts/install.sh` / `install.ps1`）。**在提交前移除，未进入版本历史**。
+  实测它们涉及三个 Windows 特有陷阱（PS 5.1 对无 BOM 的 UTF-8 `.ps1` 按 GBK 解码、原生程序 stderr 在 `ErrorActionPreference='Stop'` 下被当作终止性错误、`exit` 会杀掉 `irm | iex` 的调用方会话），维护成本高于收益
+
+---
+
 ## [0.2.0] — 2026-10-03
 
 对原"历史预测与判断训练教练"Skill 的**重大结构升级**。原版本仅为一段长提示词，规则不可测试、不可回归、不可累积；本版本将其重构为可长期维护的开源项目。

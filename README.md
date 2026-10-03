@@ -54,17 +54,56 @@ AI 不做研究、不给研究关键词、不给答案、不提前透露结局�
 
 ---
 
-## 安装
+## 一句话安装
 
-作为用户级 Skill 使用：
+本仓库是标准的 **Agent Skill** 包（`SKILL.md` + YAML frontmatter + `references/` + `scripts/`）。
+安装 = 把这个目录放进 AI 的技能目录。**不需要跑任何脚本。**
+
+### 把这句话复制给任意 AI
+
+```text
+请把 https://github.com/ziyue085/judgment-training 安装成我的技能：
+克隆到你的技能目录（例如 ~/.workbuddy/skills/ 或 ~/.claude/skills/），目录名用 judgment-training；
+装好后确认 SKILL.md 存在，然后告诉我这个技能在什么情况下会被触发。
+```
+
+如果对方是纯对话型、不能执行命令的 AI，改用这句：
+
+```text
+请读取 https://raw.githubusercontent.com/ziyue085/judgment-training/main/SKILL.md
+以及同仓库 references/ 目录下的 5 个文档，把它们作为我的长期指令保存下来。
+以后我说「判断力训练」时，按 SKILL.md 里的角色和流程执行。
+```
+
+### 各 AI 的技能目录
+
+| Agent | 目录 | 说明 |
+|---|---|---|
+| WorkBuddy | `~/.workbuddy/skills/` | 用户级；项目级为 `<项目>/.workbuddy/skills/` |
+| Claude Code | `~/.claude/skills/` | 用户级 |
+| 其他支持 `SKILL.md` 约定的 Agent | 见其文档 | 目录约定通常是 `<skills-dir>/<技能名>/SKILL.md` |
+
+### 人工安装（两步）
 
 ```bash
 git clone https://github.com/ziyue085/judgment-training.git ~/.workbuddy/skills/judgment-training
 ```
 
-或把整个目录复制到 `~/.workbuddy/skills/judgment-training/`。
+改 `~/.claude/skills/` 或你自己的技能目录均可。
 
-无需依赖安装。检查器只用 Python 标准库。
+### 依赖
+
+- **无需安装任何依赖**。检查器只用 Python 标准库（≥3.9）
+- **Python 可选但推荐**：`scripts/judge_checks.py` 提供确定性闸门。没有 Python 时技能仍可用，但规则层退化为"靠模型自觉"，可靠性下降
+- 纯云端对话产品（如 ChatGPT 网页版）没有本地技能目录机制，无法安装；用上面的"读取 URL"句式把内容作为长期指令上传
+
+### 装完自检
+
+```bash
+python ~/.workbuddy/skills/judgment-training/tests/run_regression.py
+```
+
+期望输出 `REGRESSION_STATUS=PASS`。
 
 ---
 
